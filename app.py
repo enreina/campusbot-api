@@ -12,6 +12,7 @@ def taskPreview():
     <title>{item[title]}</title>
     <meta property="og:title" content="{item[title]}"/>
     <meta property="og:image" content="{item[imageurl]}"/>
+    <meta property="og:description" content="                                                                                                  "/>
     <meta property="og:site_name" content="{item[itemtype]}" />
     </head>
     '''.format(item=request.args)
