@@ -8,14 +8,18 @@ app = FlaskAPI(__name__)
 @app.route('/task-preview')
 @set_renderers(HTMLRenderer)
 def taskPreview():
+    item = request.args.to_dict()
+    if 'description' not in item:
+        item['description'] = "                                                                                                  "
+
     return '''<head>
     <title>{item[title]}</title>
     <meta property="og:title" content="{item[title]}"/>
     <meta property="og:image" content="{item[imageurl]}"/>
-    <meta property="og:description" content="                                                                                                  "/>
+    <meta property="og:description" content="{item[description]}"/>
     <meta property="og:site_name" content="{item[itemtype]}" />
     </head>
-    '''.format(item=request.args)
+    '''.format(item=item)
 
 if __name__ == "__main__":
     app.run(debug=True)
