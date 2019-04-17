@@ -1,4 +1,10 @@
 from flask import Blueprint
+from db.firestoreClient import db
+from common.constants import taskType
+from datetime import datetime
+from dateutil.tz import tzlocal
+from flask import request
+from google.cloud.firestore_v1beta1.document import DocumentReference 
 
 placeTaskAssignment = Blueprint('placeTaskAssignment', __name__)
 
@@ -10,10 +16,38 @@ def generatePlaceEnrichmentTaskAllItem():
     return {'methodName': 'generatePlaceEnrichmentTaskAllItem'}
 
 # hit the endpoint by mobile app and chatbot after creation
-@placeTaskAssignment.route('/api/place/generate-enrichment-task/<itemId>')
+@placeTaskAssignment.route('/api/place/generate-enrichment-task/<itemId>',  methods=['GET', 'POST'])
 def generatePlaceEnrichmentTask(itemId):
-    # call assign placetask after task is generated
-    return {'methodName': 'generatePlaceEnrichmentTask'}
+    if request.method == 'GET':
+        return {'methodName': 'generatePlaceEnrichmentTask'}
+    else:
+        # check for task duplicate
+        tasks = db.collection('placeTasks').where('itemId', '==', itemId).where('type', '==', taskType.TASK_TYPE_ENRICH_ITEM).get()
+        for task in tasks:
+            return {'taskId': task.id}
+        # get the item
+        item = db.collection('placeItems').document(itemId)
+        # generate the enrichment task
+        answersCount = {
+            'building': [],
+            'buildingNumber': [],
+            'floorNumber': [],
+            'seatCapacity': []
+        }
+        taskData = {
+            'itemId': item.id,
+            'item': item,
+            'type': taskType.TASK_TYPE_ENRICH_ITEM,
+            'numOfAnswersRequired': 5,
+            'currentNumOfAnswers': 0,
+            'createdAt': datetime.now(tzlocal()),
+            'expirationDate': None, # decide expiration date
+            'answersCount': answersCount
+        }
+        taskId = db.collection('placeTasks').add(taskData)
+        # call assign placetask after task is generated
+        del taskData['item']
+        return {'taskId': taskId[1].id, 'task': taskData}
 
 @placeTaskAssignment.route('/api/place/assign-enrichment-task/<itemId>')
 def assignPlaceEnrichmentTask(itemId):
