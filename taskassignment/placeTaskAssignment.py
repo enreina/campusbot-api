@@ -1,5 +1,6 @@
 from flask import Blueprint
 from db.firestoreClient import db
+from firebase_admin import firestore
 from common.constants import taskType
 from datetime import datetime
 from dateutil.tz import tzlocal
@@ -46,19 +47,46 @@ def generatePlaceEnrichmentTask(itemId):
         }
         taskId = db.collection('placeTasks').add(taskData)
         # call assign placetask after task is generated
+        # assignPlaceEnrichmentTask(taskId)
+
         del taskData['item']
         return {'taskId': taskId[1].id, 'task': taskData}
 
-@placeTaskAssignment.route('/api/place/assign-enrichment-task/<itemId>')
-def assignPlaceEnrichmentTask(itemId):
+@placeTaskAssignment.route('/api/place/assign-enrichment-task/<taskId>', methods=['GET', 'POST'])
+def assignPlaceEnrichmentTask(taskId):
+
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'assignPlaceEnrichmentTask'}
     # load all users except the author WITH preferredlocation
     # order by totalTasksCompleted (ascending)
     # if num of users < numOfRequiredAnswers * 2
     # load more users except the author WITHOUT prefferedlocation
     # limit num of users to numOfRequiredAnswers * 2
 
+    # get task and item
+    taskRef = db.collection('placeTasks').document(taskId)
+    task = taskRef.get()
+    item = task.to_dict()['item'].get()
+    # get item's author
+    authorId = item.to_dict()['authorId']
+    taskInstance = {
+        'taskId': taskId,
+        'task': taskRef,
+        'createdAt': datetime.now(tzlocal()),
+        'completed': False
+    }
+
+    users = db.collection('users').order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
+    counter = 0
     # generate task instance to each user
-    return {'methodName': 'assignPlaceEnrichmentTask'}
+    for user in users:
+        print(user)
+        if user.id != authorId:
+            taskInstanceCollection = db.collection('users').document(user.id).collection('placeTaskInstances')
+            taskInstanceCollection.add(taskInstance)
+            counter = counter + 1
+    
+    return {'message': "Task instance generated for {counter} users".format(counter=counter)}
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
 @placeTaskAssignment.route('/api/place/generate-validate-task/:enrichmentTaskId')
