@@ -20,7 +20,7 @@ def assignFoodEnrichmentTask(itemId):
     return {'methodName': 'assignFoodEnrichmentTask', 'itemId': itemId} #replace this
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
-@foodTaskAssignment.route('/api/food/generate-validate-task/<enrichmentTaskId>')
+@foodTaskAssignment.route('/api/food/generate-validation-task/<enrichmentTaskId>')
 def generateFoodValidationTask(enrichmentTaskId):
     # check if aggregatedAnswers >= numOfRequiredAnswer
     # AND all task instances are completed
@@ -31,11 +31,11 @@ def generateFoodValidationTask(enrichmentTaskId):
     # call assign food validation task
     return {'methodName': 'generateFoodValidationTask', 'enrichmentTaskId': enrichmentTaskId} #replace this
 
-@foodTaskAssignment.route('/api/food/assign-validation-task/<itemId>')
-def assignFoodValidationTask(itemId):
+@foodTaskAssignment.route('/api/food/assign-validation-task/<taskId>')
+def assignFoodValidationTask(taskId):
     # load all users except the author
     # order by totalTasksCompleted (ascending)
     # limit num of users to numOfRequiredAnswers
 
     # generate task instance to each user
-    return {'methodName': 'generateFoodValidationTask', 'itemId': itemId} #replace this
+    return {'methodName': 'assignFoodValidationTask', 'taskId': taskId} #replace this

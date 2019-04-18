@@ -22,7 +22,7 @@ def assignQuestionEnrichmentTask(itemId):
     return {'methodName': 'assignQuestionEnrichmentTask'} #replace this
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
-@questionTaskAssignment.route('/api/question/generate-validate-task/<enrichmentTaskId>')
+@questionTaskAssignment.route('/api/question/generate-validation-task/<enrichmentTaskId>')
 def generateQuestionValidationTask(enrichmentTaskId):
     # all task instances are completed 
     # OR expiration time is done
@@ -41,4 +41,4 @@ def assignQuestionValidationTask(itemId):
     # limit num of users to numOfRequiredAnswers
 
     # generate task instance to each user
-    return {'methodName': 'generateQuestionValidationTask'} #replace this
+    return {'methodName': 'assignQuestionValidationTask'} #replace this

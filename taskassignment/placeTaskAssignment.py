@@ -89,12 +89,12 @@ def assignPlaceEnrichmentTask(taskId):
     return {'message': "Task instance generated for {counter} users".format(counter=counter)}
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
-@placeTaskAssignment.route('/api/place/generate-validate-task/:enrichmentTaskId')
+@placeTaskAssignment.route('/api/place/generate-validation-task/:enrichmentTaskId')
 def generatePlaceValidationTask(enrichmentTaskId):
     # check if aggregatedAnswers >= numOfRequiredAnswer
 
     # count the majority of answer (include answers from created item)
-    # generate task.data according to majority count
+    # generate task.aggregatedAnswers according to majority count
 
     # call assign place validation task
     return {'methodName': 'generatePlaceValidationTask'}
