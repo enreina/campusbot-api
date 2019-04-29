@@ -28,40 +28,167 @@ def generatePlaceEnrichmentTask(itemId):
         #     return {'taskId': task.id}
         # get the item
         item = db.collection('placeItems').document(itemId)
+        itemDict = item.get().to_dict()
         # generate the enrichment task
-        answersCount = {
-            'building': [],
-            'buildingNumber': [],
-            'floorNumber': [],
-            'seatCapacity': []
-        }
+        if item['category'] == db.collection('categories').document('building'):
+            answersCount = {
+                'buildingNumber': [],
+                'seatCapacity': []
+            }
+            if 'buildingNumber' in item:
+                answersCount['buildingNumber'].append({
+                    'propertyValue': item['buildingNumber'],
+                    'propertyCount': 1
+                })
+            if 'seatCapacity' in item:
+                answersCount['seatCapacity'].append({
+                    'propertyValue': item['seatCapacity'],
+                    'propertyCount': 1
+                })
+        else:
+            answersCount = {
+                'building': [],
+                'floorNumber': [],
+                'seatCapacity': []
+            }
+            answersCount['building'].append({
+                'propertyValue': item['building'],
+                'propertyCount': 1
+            })
+            if 'floorNumber' in item:
+                answersCount['floorNumber'].append({
+                    'propertyValue': item['floorNumber'],
+                    'propertyCount': 1
+                })
+            if 'seatCapacity' in item:
+                answersCount['seatCapacity'].append({
+                    'propertyValue': item['seatCapacity'],
+                    'propertyCount': 1
+                })
+
+        
         taskData = {
             'itemId': item.id,
             'item': item,
             'type': taskType.TASK_TYPE_ENRICH_ITEM,
             'numOfAnswersRequired': 5,
-            'currentNumOfAnswers': 0,
             'createdAt': datetime.now(tzlocal()),
             'expirationDate': None, # decide expiration date
             'answersCount': answersCount
         }
         taskId = db.collection('placeTasks').add(taskData)
         # call assign placetask after task is generated
-        assignPlaceEnrichmentTask(taskId)
+        assignPlaceTask(taskId[1].id)
 
         del taskData['item']
         return {'taskId': taskId[1].id, 'task': taskData}
+# hit the endpoint by mobile app and chatbot after enrichment task is completed
+@placeTaskAssignment.route('/api/place/generate-validation-task/<userId>/<enrichmentTaskInstanceId>', methods=['GET', 'POST'])
+def generatePlaceValidationTask(userId, enrichmentTaskInstanceId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generatePlaceValidationTask'}
 
-@placeTaskAssignment.route('/api/place/assign-enrichment-task/<taskId>', methods=['GET', 'POST'])
-def assignPlaceEnrichmentTask(taskId):
+    # get enrichment task instance
+    taskInstanceRef = db.collection('users').document(userId).collection('placeTaskInstances').document(enrichmentTaskInstanceId)
+    taskInstance = taskInstanceRef.get().to_dict()
+    # get enrichment answers
+    placeEnrichments = db.collection('placeEnrichments').where(u'taskInstance', u'==', taskInstanceRef).get()
+    placeEnrichment = [x for x in placeEnrichments][0].to_dict()
+    # get task
+    task = taskInstance['task'].get()
+    taskId = task.id
+    taskDict = task.to_dict()
+    # get task item
+    itemRef = taskDict['item']
+    item = itemRef.get()
+    itemDict = item.to_dict()
+    # update answers count
+    answersCount = taskDict['answersCount']
+    answersCountSufficient = True
+    majorityAnswers = {}
+    for propertyKey in answersCount: 
+        newAnswersCount = []
+        counter = 0
+        added = False
+        maxCount = 0
+        for propertyCountObject in answersCount[propertyKey]:
+            propertyValue = propertyCountObject['propertyValue']
+            propertyCount = propertyCountObject['propertyCount']
+            if propertyKey in placeEnrichment and placeEnrichment[propertyKey] == propertyValue:
+                newAnswersCount.append({
+                    'propertyValue': propertyValue, 
+                    'propertyCount': propertyCount+1})
+                counter = counter + propertyCount + 1
+                added = True
+            else:
+                newAnswersCount.append({
+                    'propertyValue': propertyValue, 
+                    'propertyCount': propertyCount})
+                counter = counter + propertyCount
+            if newAnswersCount[-1]['propertyCount'] > maxCount:
+                maxCount = newAnswersCount[-1]['propertyCount']
+                majorityAnswers[propertyKey] = propertyValue
+        if not added and propertyKey in placeEnrichment:
+            newAnswersCount.append({
+                'propertyValue': placeEnrichment[propertyKey], 
+                'propertyCount': 1})
+            counter = counter + 1
+            if maxCount == 0:
+                majorityAnswers[propertyKey] = propertyValue
+
+        answersCount[propertyKey] = newAnswersCount
+        answersCountSufficient = answersCountSufficient and (counter >= taskDict['numOfAnswersRequired'])
+    # update answers count in DB
+    taskInstance['task'].update({'answersCount': answersCount})    
+    
+    # check if each answer count >= numOfRequiredAnswer
+    if answersCountSufficient:
+        # create aggregated answers dict
+        aggregatedAnswers = {
+            'imageUrl': itemDict['imageUrl'],
+            'name': itemDict['name'],
+            'geolocation': itemDict['geolocation'],
+            'category': itemDict['category'],
+            'categoryName': itemDict['categoryName']
+        }
+        if 'route' in itemDict:
+            aggregatedAnswers['route'] = itemDict['route']
+        elif 'route' in taskEnrichment:
+            aggregatedAnswers['route'] = itemDict['route']
+
+        if 'hasElectricityOutlet' in itemDict:
+            aggregatedAnswers['hasElectricityOutlet'] = itemDict['hasElectricityOutlet']
+
+        # generate task.aggregatedAnswers according to majority count
+        for propertyKey in majorityAnswers:
+            aggregatedAnswers[propertyKey] = majorityAnswers[propertyKey]
+        
+        # generate task
+        taskData = {
+            'itemId': item.id,
+            'item': itemRef,
+            'type': taskType.TASK_TYPE_VALIDATE_ITEM,
+            'numOfAnswersRequired': 5,
+            'createdAt': datetime.now(tzlocal()),
+            'expirationDate': None, # decide expiration date
+            'aggregatedAnswers': aggregatedAnswers
+        }
+        taskId = db.collection('placeTasks').add(taskData)
+        # call assign placetask after task is generated
+        assignPlaceTask(taskId[1].id)
+
+        del taskData['item']
+        del taskData['aggregatedAnswers']
+        return {'taskId': taskId[1].id, 'task': taskData}
+
+    # call assign place validation task
+    return {'message': 'Validation task was not generated'}
+
+@placeTaskAssignment.route('/api/place/assign-task/<taskId>', methods=['GET', 'POST'])
+def assignPlaceTask(taskId):
 
     if request is not None and request.method == 'GET':
-        return {'methodName': 'assignPlaceEnrichmentTask'}
-    # load all users except the author WITH preferredlocation
-    # order by totalTasksCompleted (ascending)
-    # if num of users < numOfRequiredAnswers * 2
-    # load more users except the author WITHOUT prefferedlocation
-    # limit num of users to numOfRequiredAnswers * 2
+        return {'methodName': 'assignPlaceTask'}
 
     # get task and item
     taskRef = db.collection('placeTasks').document(taskId)
@@ -107,25 +234,3 @@ def assignPlaceEnrichmentTask(taskId):
 
     
     return {'message': "Task instance generated for {counter} users".format(counter=counter)}
-
-# hit the endpoint by mobile app and chatbot after enrichment task is completed
-@placeTaskAssignment.route('/api/place/generate-validation-task/:enrichmentTaskId')
-def generatePlaceValidationTask(enrichmentTaskId):
-    # check if aggregatedAnswers >= numOfRequiredAnswer
-
-    # count the majority of answer (include answers from created item)
-    # generate task.aggregatedAnswers according to majority count
-
-    # call assign place validation task
-    return {'methodName': 'generatePlaceValidationTask'}
-
-@placeTaskAssignment.route('/api/place/assign-validation-task/<itemId>')
-def assignPlaceValidationTask(itemId):
-    # load all users except the author WITH preferredlocation
-    # order by totalTasksCompleted (ascending)
-    # if num of users < numOfRequiredAnswers
-    # load more users except the author WITHOUT preferredlocation
-    # limit num of users to numOfRequiredAnswers
-
-    # generate task instance to each user
-    return {'methodName': 'assignPlaceValidationTask'}
