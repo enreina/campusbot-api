@@ -23,9 +23,9 @@ def generatePlaceEnrichmentTask(itemId):
         return {'methodName': 'generatePlaceEnrichmentTask'}
     else:
         # check for task duplicate
-        tasks = db.collection('placeTasks').where('itemId', '==', itemId).where('type', '==', taskType.TASK_TYPE_ENRICH_ITEM).get()
-        for task in tasks:
-            return {'taskId': task.id}
+        # tasks = db.collection('placeTasks').where('itemId', '==', itemId).where('type', '==', taskType.TASK_TYPE_ENRICH_ITEM).get()
+        # for task in tasks:
+        #     return {'taskId': task.id}
         # get the item
         item = db.collection('placeItems').document(itemId)
         # generate the enrichment task
@@ -47,7 +47,7 @@ def generatePlaceEnrichmentTask(itemId):
         }
         taskId = db.collection('placeTasks').add(taskData)
         # call assign placetask after task is generated
-        # assignPlaceEnrichmentTask(taskId)
+        assignPlaceEnrichmentTask(taskId)
 
         del taskData['item']
         return {'taskId': taskId[1].id, 'task': taskData}
@@ -65,26 +65,46 @@ def assignPlaceEnrichmentTask(taskId):
 
     # get task and item
     taskRef = db.collection('placeTasks').document(taskId)
-    task = taskRef.get()
-    item = task.to_dict()['item'].get()
+    task = taskRef.get().to_dict()
+    item = task['item'].get().to_dict()
     # get item's author
-    authorId = item.to_dict()['authorId']
+    authorId = item['authorId']
     taskInstance = {
         'taskId': taskId,
         'task': taskRef,
         'createdAt': datetime.now(tzlocal()),
         'completed': False
     }
+    
+    allUsers = db.collection('users').order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
+    allUsers = [x.id for x in allUsers]
 
-    users = db.collection('users').order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
     counter = 0
-    # generate task instance to each user
-    for user in users:
-        print(user)
-        if user.id != authorId:
-            taskInstanceCollection = db.collection('users').document(user.id).collection('placeTaskInstances')
+    if item['buildingNameLower'] is not None:
+        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingNameLower']).order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
+        usersWithPreferredLocation = [x.id for x in usersWithPreferredLocation]
+    else:
+        usersWithPreferredLocation = []
+
+    # # generate task instance to each user with preferred location
+    for userId in usersWithPreferredLocation:
+        if userId != authorId:
+            taskInstanceCollection = db.collection('users').document(userId).collection('placeTaskInstances')
             taskInstanceCollection.add(taskInstance)
             counter = counter + 1
+
+    # # generate task if not enough task instance
+    if counter < task['numOfAnswersRequired'] * 3:
+        users = list(set(allUsers) - set(usersWithPreferredLocation))
+        print(users)
+        numOfUsersNeeded = task['numOfAnswersRequired'] * 3 - counter
+
+        for userId in users[:numOfUsersNeeded]:
+            if userId != authorId:
+                taskInstanceCollection = db.collection('users').document(userId).collection('placeTaskInstances')
+                taskInstanceCollection.add(taskInstance)
+                counter = counter + 1
+
     
     return {'message': "Task instance generated for {counter} users".format(counter=counter)}
 
