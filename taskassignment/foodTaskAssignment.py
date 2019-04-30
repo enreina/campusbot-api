@@ -170,3 +170,29 @@ def assignFoodTask(taskId):
             counter = counter + 1
 
     return {'message': "Task instance generated for {counter} users".format(counter=counter)}
+
+@foodTaskAssignment.route('/api/food/assign-task-to-user/<userId>', methods=['GET', 'POST'])
+def assignFoodTaskToUser(userId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'assignFoodTaskToUser'}
+    # get tasks
+    foodTasks = db.collection('foodTasks').order_by('createdAt', direction=firestore.Query.DESCENDING).limit(15).get()
+
+    counter = 0
+    for task in foodTasks:
+        # prepare task instance
+        taskDict = task.to_dict()
+        taskInstance = {
+            'taskId': task.id,
+            'task': db.collection('foodTasks').document(task.id),
+            'createdAt': datetime.now(tzlocal()),
+            'completed': False,
+            'expired': False,
+            'expirationDate': taskDict.get('expirationDate', None)
+        }
+        # assign task instance to user
+        taskInstanceCollection = db.collection('users').document(userId).collection('foodTaskInstances')
+        taskInstanceCollection.add(taskInstance)
+        counter = counter + 1
+
+    return {'message': '{counter} task instances assigned to user {userId}'.format(counter=counter, userId=userId)}
