@@ -1,50 +1,263 @@
-from flask import Blueprint
+from flask import Blueprint, request
+from db.firestoreClient import db
+from firebase_admin import firestore
+from common.constants import taskType
+from datetime import datetime, timedelta
+from dateutil.tz import tzlocal 
 
 trashBinTaskAssignment = Blueprint('trashBinTaskAssignment', __name__)
 
 # Trash bin Task Generation & Assignment
 # hit this endpoint every monday and wednesday for each item
-@trashBinTaskAssignment.route('/api/trashbin/generate-enrichment-task')
+@trashBinTaskAssignment.route('/api/trashbin/generate-enrichment-task', methods=['GET', 'POST'])
 def generateTrashBinEnrichmentTaskAllItem():
-    # call generatetrashbinEnrichmentTask
-    return {'methodName': 'generateTrashBinEnrichmentTaskAllItem'} #replace this
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generateTrashBinEnrichmentTaskAllItem'}
+    
+    # clean all task instances
+    users = db.collection('users').get()
+    userIds = [user.id for user in users]
+    for userId in userIds:
+        userRef = db.collection('users').document(userId)
+        taskInstancesQuery = userRef.collection('trashBinTaskInstances')
+        taskInstancesQuery = taskInstancesQuery.where(u'completed', '==', False)
+        taskInstancesQuery = taskInstancesQuery.where(u'expired', '==', False)
+        taskInstances = taskInstancesQuery.get()
+        for taskInstance in taskInstances:
+            taskInstanceDict = taskInstance.to_dict()
+            if 'expirationDate' in taskInstanceDict and taskInstanceDict['expirationDate'] < datetime.now(tzlocal()):
+                # set expired to true
+                userRef.collection('trashBinTaskInstances').document(taskInstance.id).update({'expired': True})
+
+    trashBinItems = db.collection('trashBinItems').get()
+    counter = 0
+    taskIds = []
+    for item in trashBinItems:
+        try:
+            result = generateTrashBinEnrichmentTask(item.id)
+            if 'taskId' in result:
+                counter = counter + 1
+                taskIds.append(result['taskId'])
+        except:
+            continue
+
+    return {'taskIds': taskIds, 'message': "Task generated for {counter} items".format(counter=counter)}
 
 # hit the endpoint by mobile app and chatbot after creation
-@trashBinTaskAssignment.route('/api/trashbin/generate-enrichment-task/<itemId>')
+@trashBinTaskAssignment.route('/api/trashbin/generate-enrichment-task/<itemId>', methods=['GET', 'POST'])
 def generateTrashBinEnrichmentTask(itemId):
-    # call assign trashbintask after task is generated
-    return {'methodName': 'generateTrashBinEnrichmentTask'} #replace this
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generateTrashBinEnrichmentTask'}
+    else:
+        # get the item
+        item = db.collection('trashBinItems').document(itemId)
+        itemDict = item.get().to_dict()
+        # generate the enrichment task
+        answersCount = {
+            'wasteType': [],
+            'size': [],
+            'color': [],
+        }
+        for propertyKey in answersCount:
+            if propertyKey in itemDict:
+                answersCount[propertyKey].append({
+                    'propertyValue': itemDict[propertyKey],
+                    'propertyCount': 1
+                })
 
-@trashBinTaskAssignment.route('/api/trashbin/assign-enrichment-task/<itemId>')
-def assignTrashBinEnrichmentTask(itemId):
-    # load all users except the author WITH preferredlocation
-    # order by totalTasksCompleted (ascending)
-    # if num of users < numOfRequiredAnswers * 2
-    # load more users except the author WITHOUT prefferedlocation
-    # limit num of users to numOfRequiredAnswers * 2
+        # set expiration time to 2 days from now
+        expirationDate = datetime.now(tzlocal()) + timedelta(days=2)
+        expirationDate = expirationDate.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        taskData = {
+            'itemId': itemId,
+            'item': item,
+            'type': taskType.TASK_TYPE_ENRICH_ITEM,
+            'numOfAnswersRequired': 5,
+            'createdAt': datetime.now(tzlocal()),
+            'expirationDate': expirationDate, # expiration date to one day
+            'answersCount': answersCount
+        }
+        taskId = db.collection('trashBinTasks').add(taskData)
+        # call assign trashbintask after task is generated
+        assignTrashBinTask(taskId[1].id)
 
-    # generate task instance to each user
-    return {'methodName': 'assignTrashBinEnrichmentTask'} #replace this
+        del taskData['item']
+        return {'taskId': taskId[1].id, 'task': taskData}
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
-@trashBinTaskAssignment.route('/api/trashbin/generate-validate-task/:enrichmentTaskId')
-def generateTrashBinValidationTask(enrichmentTaskId):
-    # check if aggregatedAnswers >= numOfRequiredAnswer
+@trashBinTaskAssignment.route('/api/trashbin/generate-validation-task/<userId>/<enrichmentTaskInstanceId>', methods=['GET', 'POST'])
+def generateTrashBinValidationTask(userId, enrichmentTaskInstanceId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generateTrashBinValidationTask'}
 
-    # count the majority of answer (include answers from created item)
-    # generate task.data according to majority count
+    # get enrichment task instance
+    taskInstanceRef = db.collection('users').document(userId).collection('trashBinTaskInstances').document(enrichmentTaskInstanceId)
+    taskInstance = taskInstanceRef.get().to_dict()
+    # get enrichment answers
+    trashBinEnrichments = db.collection('trashBinEnrichments').where(u'taskInstance', u'==', taskInstanceRef).get()
+    trashBinEnrichment = [x for x in trashBinEnrichments][0].to_dict()
+    # get task
+    task = taskInstance['task'].get()
+    taskId = task.id
+    taskDict = task.to_dict()
+    # get task item
+    itemRef = taskDict['item']
+    item = itemRef.get()
+    itemDict = item.to_dict()
+    # update answers count
+    answersCount = taskDict['answersCount']
+    answersCountSufficient = True
+    majorityAnswers = {}
+    for propertyKey in answersCount: 
+        newAnswersCount = []
+        counter = 0
+        added = False
+        maxCount = 0
+        for propertyCountObject in answersCount[propertyKey]:
+            propertyValue = propertyCountObject['propertyValue']
+            propertyCount = propertyCountObject['propertyCount']
+            if propertyKey in trashBinEnrichment and trashBinEnrichment[propertyKey] == propertyValue:
+                newAnswersCount.append({
+                    'propertyValue': propertyValue, 
+                    'propertyCount': propertyCount+1})
+                counter = counter + propertyCount + 1
+                added = True
+            else:
+                newAnswersCount.append({
+                    'propertyValue': propertyValue, 
+                    'propertyCount': propertyCount})
+                counter = counter + propertyCount
+            if newAnswersCount[-1]['propertyCount'] > maxCount:
+                maxCount = newAnswersCount[-1]['propertyCount']
+                majorityAnswers[propertyKey] = propertyValue
+        if not added and propertyKey in trashBinEnrichment:
+            newAnswersCount.append({
+                'propertyValue': trashBinEnrichment[propertyKey], 
+                'propertyCount': 1})
+            counter = counter + 1
+            if maxCount == 0:
+                majorityAnswers[propertyKey] = trashBinEnrichment[propertyKey]
 
-    # call assign trashbin validation task
-    return {'methodName': 'generateTrashBinEnrichmentTask'} #replace this
+        answersCount[propertyKey] = newAnswersCount
+        answersCountSufficient = answersCountSufficient and (counter >= taskDict['numOfAnswersRequired'])
+    # update answers count in DB
+    taskInstance['task'].update({'answersCount': answersCount})    
+    
+    # check if each answer count >= numOfRequiredAnswer
+    if answersCountSufficient:
+        # create aggregated answers dict
+        aggregatedAnswers = {
+            'imageUrl': itemDict['imageUrl'],
+            'locationDescription': itemDict['locationDescription'],
+            'building': itemDict['building']
+        }
+        if 'wasteType' in itemDict:
+            aggregatedAnswers['wasteType'] = itemDict['wasteType']
+        if 'size' in itemDict:
+            aggregatedAnswers['size'] = itemDict['size']
+        if 'color' in itemDict:
+            aggregatedAnswers['color'] = itemDict['color']
 
-@trashBinTaskAssignment.route('/api/trashbin/assign-validation-task/<itemId>')
-def assignTrashBinValidationTask(itemId):
-    # load all users except the author WITH preferredlocation
-    # order by totalTasksCompleted (ascending)
-    # if num of users < numOfRequiredAnswers
-    # load more users except the author WITHOUT preferredlocation
-    # limit num of users to numOfRequiredAnswers
+        # generate task.aggregatedAnswers according to majority count
+        for propertyKey in majorityAnswers:
+            aggregatedAnswers[propertyKey] = majorityAnswers[propertyKey]
+        
+        # generate task
+        taskData = {
+            'itemId': item.id,
+            'item': itemRef,
+            'type': taskType.TASK_TYPE_VALIDATE_ITEM,
+            'numOfAnswersRequired': 5,
+            'createdAt': datetime.now(tzlocal()),
+            'expirationDate': None, # decide expiration date
+            'aggregatedAnswers': aggregatedAnswers
+        }
+        taskId = db.collection('trashBinTasks').add(taskData)
+        # call assign trashbintask after task is generated
+        assignTrashBinTask(taskId[1].id)
 
-    # generate task instance to each user
-    return {'methodName': 'assignTrashBinValidationTask'} #replace this
+        del taskData['item']
+        del taskData['aggregatedAnswers']
+        return {'taskId': taskId[1].id, 'task': taskData}
 
+    return {'message': 'Validation task was not generated'}
+
+@trashBinTaskAssignment.route('/api/trashbin/assign-task/<taskId>')
+def assignTrashBinTask(taskId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'assignTrashBinTask'}
+
+    # get task and item
+    taskRef = db.collection('trashBinTasks').document(taskId)
+    task = taskRef.get().to_dict()
+    item = task['item'].get().to_dict()
+    # get item's author
+    authorId = item['authorId']
+    taskInstance = {
+        'taskId': taskId,
+        'task': taskRef,
+        'createdAt': datetime.now(tzlocal()),
+        'completed': False,
+        'expired': False,
+        'expirationDate': task['expirationDate']
+    }
+    
+    allUsers = db.collection('users').order_by('totalTasksCompleted.trashbin', direction=firestore.Query.ASCENDING).get()
+    allUsers = [x.id for x in allUsers]
+
+    counter = 0
+    if 'buildingNameLower' in item and item['buildingNameLower'] is not None:
+        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingNameLower']).order_by('totalTasksCompleted.trashbin', direction=firestore.Query.ASCENDING).get()
+        usersWithPreferredLocation = [x.id for x in usersWithPreferredLocation]
+    else:
+        usersWithPreferredLocation = []
+
+    # # generate task instance to each user with preferred location
+    for userId in usersWithPreferredLocation:
+        if userId != authorId:
+            taskInstanceCollection = db.collection('users').document(userId).collection('trashBinTaskInstances')
+            taskInstanceCollection.add(taskInstance)
+            counter = counter + 1
+
+    # # generate task if not enough task instance
+    if counter < task['numOfAnswersRequired'] * 3:
+        users = list(set(allUsers) - set(usersWithPreferredLocation))
+        print(users)
+        numOfUsersNeeded = task['numOfAnswersRequired'] * 3 - counter
+
+        for userId in users[:numOfUsersNeeded]:
+            if userId != authorId:
+                taskInstanceCollection = db.collection('users').document(userId).collection('trashBinTaskInstances')
+                taskInstanceCollection.add(taskInstance)
+                counter = counter + 1
+
+    
+    return {'message': "Task instance generated for {counter} users".format(counter=counter)}
+
+# hit this endpoint everytime a user registers
+@trashBinTaskAssignment.route('/api/trashbin/assign-task-to-user/<userId>', methods=['GET', 'POST'])
+def assignTrashBinTaskToUser(userId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'assignTrashBinTaskToUser'}
+    # get tasks
+    trashBinTasks = db.collection('trashBinTasks').order_by('createdAt', direction=firestore.Query.DESCENDING).limit(15).get()
+
+    counter = 0
+    for task in trashBinTasks:
+        # prepare task instance
+        taskDict = task.to_dict()
+        taskInstance = {
+            'taskId': task.id,
+            'task': db.collection('trashBinTasks').document(task.id),
+            'createdAt': datetime.now(tzlocal()),
+            'completed': False,
+            'expired': False,
+            'expirationDate': taskDict.get('expirationDate', None)
+        }
+        # assign task instance to user
+        taskInstanceCollection = db.collection('users').document(userId).collection('trashBinTaskInstances')
+        taskInstanceCollection.add(taskInstance)
+        counter = counter + 1
+
+    return {'message': '{counter} task instances assigned to user {userId}'.format(counter=counter, userId=userId)}

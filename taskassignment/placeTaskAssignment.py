@@ -1,11 +1,9 @@
-from flask import Blueprint
+from flask import Blueprint, request
 from db.firestoreClient import db
 from firebase_admin import firestore
 from common.constants import taskType
 from datetime import datetime, timedelta
 from dateutil.tz import tzlocal
-from flask import request
-from google.cloud.firestore_v1beta1.document import DocumentReference 
 
 placeTaskAssignment = Blueprint('placeTaskAssignment', __name__)
 
@@ -26,7 +24,8 @@ def generatePlaceEnrichmentTaskAllItem():
         taskInstancesQuery = taskInstancesQuery.where(u'expired', '==', False)
         taskInstances = taskInstancesQuery.get()
         for taskInstance in taskInstances:
-            if taskInstance.to_dict()['expirationDate'] < datetime.now(tzlocal()):
+            taskInstanceDict = taskInstance.to_dict()
+            if 'expirationDate' in taskInstanceDict and taskInstanceDict['expirationDate'] < datetime.now(tzlocal()):
                 # set expired to true
                 userRef.collection('placeTaskInstances').document(taskInstance.id).update({'expired': True})
 
@@ -50,10 +49,6 @@ def generatePlaceEnrichmentTask(itemId):
     if request is not None and request.method == 'GET':
         return {'methodName': 'generatePlaceEnrichmentTask'}
     else:
-        # check for task duplicate
-        # tasks = db.collection('placeTasks').where('itemId', '==', itemId).where('type', '==', taskType.TASK_TYPE_ENRICH_ITEM).get()
-        # for task in tasks:
-        #     return {'taskId': task.id}
         # get the item
         item = db.collection('placeItems').document(itemId)
         itemDict = item.get().to_dict()
@@ -166,7 +161,7 @@ def generatePlaceValidationTask(userId, enrichmentTaskInstanceId):
                 'propertyCount': 1})
             counter = counter + 1
             if maxCount == 0:
-                majorityAnswers[propertyKey] = propertyValue
+                majorityAnswers[propertyKey] = trashBinEnrichment[propertyKey]
 
         answersCount[propertyKey] = newAnswersCount
         answersCountSufficient = answersCountSufficient and (counter >= taskDict['numOfAnswersRequired'])
@@ -287,7 +282,7 @@ def assignPlaceTaskToUser(userId):
             'createdAt': datetime.now(tzlocal()),
             'completed': False,
             'expired': False,
-            'expirationDate': taskDict['expirationDate']
+            'expirationDate': taskDict.get('expirationDate', None)
         }
         # assign task instance to user
         taskInstanceCollection = db.collection('users').document(userId).collection('placeTaskInstances')
