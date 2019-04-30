@@ -2,7 +2,7 @@ from flask import Blueprint
 from db.firestoreClient import db
 from firebase_admin import firestore
 from common.constants import taskType
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.tz import tzlocal
 from flask import request
 from google.cloud.firestore_v1beta1.document import DocumentReference 
@@ -10,12 +10,26 @@ from google.cloud.firestore_v1beta1.document import DocumentReference
 placeTaskAssignment = Blueprint('placeTaskAssignment', __name__)
 
 # Place Task Generation & Assignment
-# hit this endpoint every day for each item
+# hit this endpoint every day for each place task instance
 @placeTaskAssignment.route('/api/place/generate-enrichment-task', methods=['GET', 'POST'])
 def generatePlaceEnrichmentTaskAllItem():
     if request is not None and request.method == 'GET':
         return {'methodName': 'generatePlaceEnrichmentTaskAllItem'}
     
+    # clean all task instances
+    users = db.collection('users').get()
+    userIds = [user.id for user in users]
+    for userId in userIds:
+        userRef = db.collection('users').document(userId)
+        taskInstancesQuery = userRef.collection('placeTaskInstances')
+        taskInstancesQuery = taskInstancesQuery.where(u'completed', '==', False)
+        taskInstancesQuery = taskInstancesQuery.where(u'expired', '==', False)
+        taskInstances = taskInstancesQuery.get()
+        for taskInstance in taskInstances:
+            if taskInstance.to_dict()['expirationDate'] < datetime.now(tzlocal()):
+                # set expired to true
+                userRef.collection('placeTaskInstances').document(taskInstance.id).update({'expired': True})
+
     placeItems = db.collection('placeItems').get()
     counter = 0
     taskIds = []
@@ -88,7 +102,7 @@ def generatePlaceEnrichmentTask(itemId):
             'type': taskType.TASK_TYPE_ENRICH_ITEM,
             'numOfAnswersRequired': 5,
             'createdAt': datetime.now(tzlocal()),
-            'expirationDate': None, # decide expiration date
+            'expirationDate': datetime.now(tzlocal()) + timedelta(days=1), # expiration date to one day
             'answersCount': answersCount
         }
         taskId = db.collection('placeTasks').add(taskData)
@@ -216,7 +230,9 @@ def assignPlaceTask(taskId):
         'taskId': taskId,
         'task': taskRef,
         'createdAt': datetime.now(tzlocal()),
-        'completed': False
+        'completed': False,
+        'expired': False,
+        'expirationDate': task['expirationDate']
     }
     
     allUsers = db.collection('users').order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
