@@ -82,7 +82,11 @@ def generateFoodValidationTask(userId, enrichmentTaskInstanceId):
                     maxCount = count
                     majorityAnswers[mealCategory['propertyName']] = mealCategory['propertyValue']
             elif isPropertyNameEqual:
-                counter = counter + mealCategoryCountObject['propertyCount']  
+                count = mealCategoryCountObject['propertyCount'] 
+                counter = counter + count 
+                if count > maxCount:
+                    maxCount = count
+                    majorityAnswers[mealCategory['propertyName']] = mealCategoryCountObject['propertyValue']
         
         if not added:
             answersCount['mealCategory'].append(
@@ -96,7 +100,7 @@ def generateFoodValidationTask(userId, enrichmentTaskInstanceId):
         
     # update answers count in DB
     taskInstance['task'].update({'answersCount': answersCount})    
-    
+    print(majorityAnswers)
     # check if each answer count >= numOfRequiredAnswer
     if answersCountSufficient:
         # create aggregated answers dict
@@ -107,9 +111,9 @@ def generateFoodValidationTask(userId, enrichmentTaskInstanceId):
         }
 
         # generate task.aggregatedAnswers according to majority count
-        aggregatedAnswers['mealCategory'] = []
+        aggregatedAnswers['categories'] = []
         for mealItem in majorityAnswers:
-            aggregatedAnswers['mealCategory'].append({
+            aggregatedAnswers['categories'].append({
                 'propertyName': mealItem,
                 'propertyValue': majorityAnswers[mealItem]
             })
