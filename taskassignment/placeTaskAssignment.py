@@ -11,15 +11,29 @@ placeTaskAssignment = Blueprint('placeTaskAssignment', __name__)
 
 # Place Task Generation & Assignment
 # hit this endpoint every day for each item
-@placeTaskAssignment.route('/api/place/generate-enrichment-task')
+@placeTaskAssignment.route('/api/place/generate-enrichment-task', methods=['GET', 'POST'])
 def generatePlaceEnrichmentTaskAllItem():
-    # call generatePlaceEnrichmentTask
-    return {'methodName': 'generatePlaceEnrichmentTaskAllItem'}
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generatePlaceEnrichmentTaskAllItem'}
+    
+    placeItems = db.collection('placeItems').get()
+    counter = 0
+    taskIds = []
+    for item in placeItems:
+        try:
+            result = generatePlaceEnrichmentTask(item.id)
+            if 'taskId' in result:
+                counter = counter + 1
+                taskIds.append(result['taskId'])
+        except:
+            continue
+
+    return {'taskIds': taskIds, 'message': "Task generated for {counter} items".format(counter=counter)}
 
 # hit the endpoint by mobile app and chatbot after creation
 @placeTaskAssignment.route('/api/place/generate-enrichment-task/<itemId>',  methods=['GET', 'POST'])
 def generatePlaceEnrichmentTask(itemId):
-    if request.method == 'GET':
+    if request is not None and request.method == 'GET':
         return {'methodName': 'generatePlaceEnrichmentTask'}
     else:
         # check for task duplicate
@@ -30,19 +44,19 @@ def generatePlaceEnrichmentTask(itemId):
         item = db.collection('placeItems').document(itemId)
         itemDict = item.get().to_dict()
         # generate the enrichment task
-        if item['category'] == db.collection('categories').document('building'):
+        if itemDict['category'] == db.collection('categories').document('building'):
             answersCount = {
                 'buildingNumber': [],
                 'seatCapacity': []
             }
-            if 'buildingNumber' in item:
+            if 'buildingNumber' in itemDict:
                 answersCount['buildingNumber'].append({
-                    'propertyValue': item['buildingNumber'],
+                    'propertyValue': itemDict['buildingNumber'],
                     'propertyCount': 1
                 })
-            if 'seatCapacity' in item:
+            if 'seatCapacity' in itemDict:
                 answersCount['seatCapacity'].append({
-                    'propertyValue': item['seatCapacity'],
+                    'propertyValue': itemDict['seatCapacity'],
                     'propertyCount': 1
                 })
         else:
@@ -51,24 +65,25 @@ def generatePlaceEnrichmentTask(itemId):
                 'floorNumber': [],
                 'seatCapacity': []
             }
-            answersCount['building'].append({
-                'propertyValue': item['building'],
-                'propertyCount': 1
-            })
-            if 'floorNumber' in item:
-                answersCount['floorNumber'].append({
-                    'propertyValue': item['floorNumber'],
+            if 'building' in itemDict:
+                answersCount['building'].append({
+                    'propertyValue': itemDict['building'],
                     'propertyCount': 1
                 })
-            if 'seatCapacity' in item:
+            if 'floorNumber' in itemDict:
+                answersCount['floorNumber'].append({
+                    'propertyValue': itemDict['floorNumber'],
+                    'propertyCount': 1
+                })
+            if 'seatCapacity' in itemDict:
                 answersCount['seatCapacity'].append({
-                    'propertyValue': item['seatCapacity'],
+                    'propertyValue': itemDict['seatCapacity'],
                     'propertyCount': 1
                 })
 
         
         taskData = {
-            'itemId': item.id,
+            'itemId': itemId,
             'item': item,
             'type': taskType.TASK_TYPE_ENRICH_ITEM,
             'numOfAnswersRequired': 5,
@@ -82,6 +97,7 @@ def generatePlaceEnrichmentTask(itemId):
 
         del taskData['item']
         return {'taskId': taskId[1].id, 'task': taskData}
+
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
 @placeTaskAssignment.route('/api/place/generate-validation-task/<userId>/<enrichmentTaskInstanceId>', methods=['GET', 'POST'])
 def generatePlaceValidationTask(userId, enrichmentTaskInstanceId):
@@ -207,7 +223,7 @@ def assignPlaceTask(taskId):
     allUsers = [x.id for x in allUsers]
 
     counter = 0
-    if item['buildingNameLower'] is not None:
+    if 'buildingNameLower' in item and item['buildingNameLower'] is not None:
         usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingNameLower']).order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
         usersWithPreferredLocation = [x.id for x in usersWithPreferredLocation]
     else:
