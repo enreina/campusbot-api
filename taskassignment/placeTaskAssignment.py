@@ -95,6 +95,8 @@ def generatePlaceEnrichmentTask(itemId):
                     'propertyCount': 1
                 })
 
+        expirationDate = datetime.now(tzlocal()) + timedelta(days=1)
+        expirationDate = expirationDate.replace(hour=0, minute=0, second=0, microsecond=0)
         
         taskData = {
             'itemId': itemId,
@@ -102,7 +104,7 @@ def generatePlaceEnrichmentTask(itemId):
             'type': taskType.TASK_TYPE_ENRICH_ITEM,
             'numOfAnswersRequired': 5,
             'createdAt': datetime.now(tzlocal()),
-            'expirationDate': datetime.now(tzlocal()) + timedelta(days=1), # expiration date to one day
+            'expirationDate': expirationDate, # expiration date to one day
             'answersCount': answersCount
         }
         taskId = db.collection('placeTasks').add(taskData)
@@ -266,3 +268,30 @@ def assignPlaceTask(taskId):
 
     
     return {'message': "Task instance generated for {counter} users".format(counter=counter)}
+
+# hit this endpoint everytime a user registers
+@placeTaskAssignment.route('/api/place/assign-task-to-user/<userId>', methods=['GET', 'POST'])
+def assignPlaceTaskToUser(userId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'assignPlaceTaskToUser'}
+    # get tasks
+    placeTasks = db.collection('placeTasks').order_by('createdAt', direction=firestore.Query.DESCENDING).limit(15).get()
+
+    counter = 0
+    for task in placeTasks:
+        # prepare task instance
+        taskDict = task.to_dict()
+        taskInstance = {
+            'taskId': task.id,
+            'task': db.collection('placeTasks').document(task.id),
+            'createdAt': datetime.now(tzlocal()),
+            'completed': False,
+            'expired': False,
+            'expirationDate': taskDict['expirationDate']
+        }
+        # assign task instance to user
+        taskInstanceCollection = db.collection('users').document(userId).collection('placeTaskInstances')
+        taskInstanceCollection.add(taskInstance)
+        counter = counter + 1
+
+    return {'message': '{counter} task instances assigned to user {userId}'.format(counter=counter, userId=userId)}
