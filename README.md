@@ -43,10 +43,11 @@ http://127.0.0.1:5000/api/status
 ### ENDPOINTS
 The endpoints are live on `campusbot.cf`
 * `GET /api/status`
+* `POST /api/[place|trashbin]/generate-enrichment-task`
 * `POST /api/[food|place|question|trashbin]/generate-enrichment-task/<itemId>`
-* `POST /api/[food|place|question|trashbin]/assign-enrichment-task/<taskId>`
-* `POST /api/[food|place|question|trashbin]/generate-validation-task/<enrichmentTaskId>`
-* `POST /api/[food|place|question|trashbin]/assign-validation-task/<taskId>`
+* `POST /api/[food|place|question|trashbin]/generate-validation-task/<userId>/<enrichmentTaskInstanceId>`
+* `POST /api/[food|place|question|trashbin]/assign-task/<taskId>`
+* `POST /api/[food|place|question|trashbin]/assign-task-to-user/<userId>`
 
 ### Deployment to production
 1. ssh to deployment server
