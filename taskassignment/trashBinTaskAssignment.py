@@ -25,7 +25,8 @@ def generateTrashBinEnrichmentTaskAllItem():
         taskInstances = taskInstancesQuery.get()
         for taskInstance in taskInstances:
             taskInstanceDict = taskInstance.to_dict()
-            if 'expirationDate' in taskInstanceDict and taskInstanceDict['expirationDate'] < datetime.now(tzlocal()):
+            expirationDate = taskInstanceDict.get('expirationDate', None)
+            if expirationDate is not None and expirationDate < datetime.now(tzlocal()):
                 # set expired to true
                 userRef.collection('trashBinTaskInstances').document(taskInstance.id).update({'expired': True})
 
