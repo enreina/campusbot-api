@@ -7,6 +7,10 @@ from taskassignment.placeTaskAssignment import placeTaskAssignment
 from taskassignment.foodTaskAssignment import foodTaskAssignment
 from taskassignment.questionTaskAssignment import questionTaskAssignment
 from taskassignment.trashBinTaskAssignment import trashBinTaskAssignment
+from db.firestoreClient import db
+from common.constants import copywriting
+import requests as externalRequests
+import settings as env
 
 app = FlaskAPI(__name__)
 CORS(app)
@@ -30,6 +34,46 @@ def taskPreview():
     <meta property="og:site_name" content="{item[itemtype]}" />
     </head>
     '''.format(item=item)
+
+@app.route('/api/push-notification', methods=['GET', "POST"])
+def pushNotification():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'pushNotification'}
+
+    # get all users without current_task_list
+    users = db.collection('users').get()
+    postData = {
+	"text": "We have some new tasks assigned to you, do you want to work on them?",
+	"reply_markup": {"inline_keyboard": [
+		    [{"text": copywriting.PUSH_NOTIF_RESPONSE_YES_TEXT, "callback_data": copywriting.PUSH_NOTIF_RESPONSE_YES_CALLBACK}, 
+            {"text": copywriting.PUSH_NOTIF_RESPONSE_NO_TEXT, "callback_data": copywriting.PUSH_NOTIF_RESPONSE_NO_CALLBACK}]
+            ]
+        },
+        "parse_mode": "Markdown"
+    }
+    counter = 0
+    for user in users:
+        userDict = user.to_dict()
+        if 'telegramId' not in userDict:
+            continue
+        userId = userDict['telegramId']
+
+        if userDict.get('hasReceivedPushNotif', False):
+            # delete previous push notif
+            response = externalRequests.post(
+                env.DELETE_MESSAGE_ENDPOINT, 
+                json={'message_id': userDict.get('pushNotifMessageId', ''), 'chat_id': userId})
+
+        postData['chat_id'] = userId
+        response = externalRequests.post(env.SEND_MESSAGE_ENDPOINT, json=postData)
+        
+        if response.status_code == 200:
+            counter = counter + 1
+            messageId = response.json()['result']['message_id']
+            db.collection("users").document(userId).update({'hasReceivedPushNotif' : True, 'pushNotifMessageId': messageId})
+
+
+    return {"message" : "Push notif sent to {counter} users".format(counter=counter)}
 
 @app.route('/api/status')
 def status():
