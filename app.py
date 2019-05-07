@@ -60,12 +60,20 @@ def pushNotification():
 
         if userDict.get('hasReceivedPushNotif', False):
             # delete previous push notif
+            if userDict.get('chatbotv2', False):
+                deleteMessageEndpoint = env.DELETE_MESSAGE_ENDPOINT_V2
+            else:
+                deleteMessageEndpoint = env.DELETE_MESSAGE_ENDPOINT
+            
             response = externalRequests.post(
-                env.DELETE_MESSAGE_ENDPOINT, 
+                deleteMessageEndpoint, 
                 json={'message_id': userDict.get('pushNotifMessageId', ''), 'chat_id': userId})
 
         postData['chat_id'] = userId
-        response = externalRequests.post(env.SEND_MESSAGE_ENDPOINT, json=postData)
+        if userDict.get('chatbotv2', False):
+            response = externalRequests.post(env.SEND_MESSAGE_ENDPOINT_V2, json=postData)
+        else:
+            response = externalRequests.post(env.SEND_MESSAGE_ENDPOINT, json=postData)
         
         if response.status_code == 200:
             counter = counter + 1
