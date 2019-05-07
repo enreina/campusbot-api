@@ -162,7 +162,7 @@ def generatePlaceValidationTask(userId, enrichmentTaskInstanceId):
                 'propertyCount': 1})
             counter = counter + 1
             if maxCount == 0:
-                majorityAnswers[propertyKey] = trashBinEnrichment[propertyKey]
+                majorityAnswers[propertyKey] = placeEnrichment[propertyKey]
 
         answersCount[propertyKey] = newAnswersCount
         answersCountSufficient = answersCountSufficient and (counter >= taskDict['numOfAnswersRequired'])
