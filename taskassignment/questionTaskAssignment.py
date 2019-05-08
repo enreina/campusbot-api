@@ -163,6 +163,8 @@ def assignQuestionTaskToUser(userId):
     for task in questionTasks:
         # prepare task instance
         taskDict = task.to_dict()
+        if taskDict.get('doNotAssign', False):
+            continue
         taskInstance = {
             'taskId': task.id,
             'task': db.collection('questionTasks').document(task.id),

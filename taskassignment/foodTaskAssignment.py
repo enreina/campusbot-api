@@ -182,6 +182,8 @@ def assignFoodTaskToUser(userId):
     for task in foodTasks:
         # prepare task instance
         taskDict = task.to_dict()
+        if taskDict.get('doNotAssign', False):
+            continue
         taskInstance = {
             'taskId': task.id,
             'task': db.collection('foodTasks').document(task.id),

@@ -277,6 +277,8 @@ def assignPlaceTaskToUser(userId):
     for task in placeTasks:
         # prepare task instance
         taskDict = task.to_dict()
+        if taskDict.get('doNotAssign', False):
+            continue
         taskInstance = {
             'taskId': task.id,
             'task': db.collection('placeTasks').document(task.id),
