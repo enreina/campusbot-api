@@ -108,6 +108,7 @@ def generatePlaceEnrichmentTask(itemId):
         assignPlaceTask(taskId[1].id)
 
         del taskData['item']
+        del taskData['answersCount']
         return {'taskId': taskId[1].id, 'task': taskData}
 
 # hit the endpoint by mobile app and chatbot after enrichment task is completed
