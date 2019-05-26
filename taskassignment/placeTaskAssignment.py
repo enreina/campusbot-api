@@ -53,7 +53,12 @@ def generatePlaceEnrichmentTask(itemId):
         # get the item
         item = db.collection('placeItems').document(itemId)
         itemDict = item.get().to_dict()
-        # generate the enrichment task
+
+        # find task with the same itemId
+        tasks = db.collection('placeTasks').where(u'itemId',u'==', itemId).where(u'type', u'==', taskType.TASK_TYPE_ENRICH_ITEM).order_by('createdAt', direction=firestore.Query.DESCENDING).get()
+        tasks = [x for x in tasks]
+        if tasks:
+            answersCount = tasks[0].to_dict().get('answersCount',{}).copy()
         if itemDict['category'] == db.collection('categories').document('building'):
             answersCount = {
                 'buildingNumber': [],
@@ -71,13 +76,13 @@ def generatePlaceEnrichmentTask(itemId):
                 })
         else:
             answersCount = {
-                'building': [],
+                'buildingName': [],
                 'floorNumber': [],
                 'seatCapacity': []
             }
-            if 'building' in itemDict:
-                answersCount['building'].append({
-                    'propertyValue': itemDict['building'],
+            if 'buildingName' in itemDict:
+                answersCount['buildingName'].append({
+                    'propertyValue': itemDict['buildingName'],
                     'propertyCount': 1
                 })
             if 'floorNumber' in itemDict:
@@ -93,7 +98,7 @@ def generatePlaceEnrichmentTask(itemId):
 
         expirationDate = datetime.now(tzlocal()) + timedelta(days=1)
         expirationDate = expirationDate.replace(hour=0, minute=0, second=0, microsecond=0)
-        
+
         taskData = {
             'itemId': itemId,
             'item': item,
@@ -238,8 +243,8 @@ def assignPlaceTask(taskId):
     allUsers = [x.id for x in allUsers]
 
     counter = 0
-    if 'buildingNameLower' in item and item['buildingNameLower'] is not None:
-        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingNameLower']).order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
+    if 'buildingName' in item and item['buildingName'] is not None:
+        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingName'].lower()).order_by('totalTasksCompleted.place', direction=firestore.Query.ASCENDING).get()
         usersWithPreferredLocation = [x.id for x in usersWithPreferredLocation]
     else:
         usersWithPreferredLocation = []

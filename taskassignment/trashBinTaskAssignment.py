@@ -53,12 +53,18 @@ def generateTrashBinEnrichmentTask(itemId):
         # get the item
         item = db.collection('trashBinItems').document(itemId)
         itemDict = item.get().to_dict()
-        # generate the enrichment task
-        answersCount = {
-            'wasteType': [],
-            'size': [],
-            'color': [],
-        }
+        # find task with the same itemId
+        tasks = db.collection('trashBinTasks').where(u'itemId',u'==', itemId).where(u'type', u'==', taskType.TASK_TYPE_ENRICH_ITEM).order_by('createdAt', direction=firestore.Query.DESCENDING).get()
+        tasks = [x for x in tasks]
+        if tasks:
+            answersCount = tasks[0].to_dict().get('answersCount',{}).copy()
+        else:
+            answersCount = {
+                'wasteType': [],
+                'size': [],
+                'color': [],
+            }
+        
         for propertyKey in answersCount:
             if propertyKey in itemDict:
                 answersCount[propertyKey].append({
@@ -118,6 +124,15 @@ def generateTrashBinValidationTask(userId, enrichmentTaskInstanceId):
         for propertyCountObject in answersCount[propertyKey]:
             propertyValue = propertyCountObject['propertyValue']
             propertyCount = propertyCountObject['propertyCount']
+            # convert waste type from number to nominal category
+            if propertyKey == 'wasteType' and isinstance(propertyValue, int):
+                if propertyValue == 0:
+                    propertyValue = u"General Waste"
+                elif propertyValue == 1:
+                    propertyValue = u"Paper Cups"
+                elif propertyValue == 2:
+                    propertyValue = u"Others"
+
             if propertyKey in trashBinEnrichment and trashBinEnrichment[propertyKey] == propertyValue:
                 newAnswersCount.append({
                     'propertyValue': propertyValue, 
@@ -208,8 +223,8 @@ def assignTrashBinTask(taskId):
     allUsers = [x.id for x in allUsers]
 
     counter = 0
-    if 'buildingNameLower' in item and item['buildingNameLower'] is not None:
-        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingNameLower']).order_by('totalTasksCompleted.trashbin', direction=firestore.Query.ASCENDING).get()
+    if 'buildingName' in item and item['buildingName'] is not None:
+        usersWithPreferredLocation = db.collection('users').where(u"preferredLocationNames", u"array_contains", item['buildingName'].lower()).order_by('totalTasksCompleted.trashbin', direction=firestore.Query.ASCENDING).get()
         usersWithPreferredLocation = [x.id for x in usersWithPreferredLocation]
     else:
         usersWithPreferredLocation = []
