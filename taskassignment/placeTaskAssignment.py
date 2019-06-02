@@ -59,7 +59,7 @@ def generatePlaceEnrichmentTask(itemId):
         tasks = [x for x in tasks]
         if tasks:
             answersCount = tasks[0].to_dict().get('answersCount',{}).copy()
-        if itemDict['category'] == db.collection('categories').document('building'):
+        elif itemDict['category'] == db.collection('categories').document('building'):
             answersCount = {
                 'buildingNumber': [],
                 'seatCapacity': []
