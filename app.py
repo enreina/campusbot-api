@@ -78,7 +78,9 @@ def pushNotification():
         if response.status_code == 200:
             counter = counter + 1
             messageId = response.json()['result']['message_id']
-            db.collection("users").document(userId).update({'hasReceivedPushNotif' : True, 'pushNotifMessageId': messageId})
+            db.collection("users").document(userId).update({'hasReceivedPushNotif' : True, 'pushNotifMessageId': messageId, 'hasBlockedBot': False})
+        elif response.status_code == 403 or 'blocked' in response.json()['description']:
+            db.collection("users").document(userId).update({'hasBlockedBot': True})
 
 
     return {"message" : "Push notif sent to {counter} users".format(counter=counter)}
