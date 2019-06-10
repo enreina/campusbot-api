@@ -299,3 +299,67 @@ def assignPlaceTaskToUser(userId):
         counter = counter + 1
 
     return {'message': '{counter} task instances assigned to user {userId}'.format(counter=counter, userId=userId)}
+
+@placeTaskAssignment.route('/api/place/generate-validation-task', methods=['GET', 'POST'])
+def generatePlaceValidationTaskAllEnrichmentTask():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'generatePlaceValidationTaskAllEnrichmentTask'}
+
+    # get all enrichment task ids which has not expired
+    enrichmentTasks = db.collection('placeTasks').where('expirationDate', '>', datetime(2019,6,3,tzinfo=tzlocal())).get()
+    validationTasks = []
+    # for every enrichment task
+    for task in enrichmentTasks:
+        taskDict = task.to_dict()
+        # skip if not enrichment task
+        if taskDict['type'] != taskType.TASK_TYPE_ENRICH_ITEM:
+            continue
+        # calculate majority
+        answersCount = taskDict['answersCount']
+        majorityAnswers = {}
+        for propertyKey in answersCount:
+            maxCount = 0
+            for propertyCountObject in answersCount[propertyKey]:
+                if propertyCountObject['propertyCount'] > maxCount:
+                    maxCount = propertyCountObject['propertyCount']
+                    majorityAnswers[propertyKey] = propertyCountObject['propertyValue']
+        # get item
+        itemRef = taskDict['item']
+        item = itemRef.get()
+        itemDict = item.to_dict()
+        # create aggregatedAnswers
+        aggregatedAnswers = {
+            'imageUrl': itemDict['imageUrl'],
+            'name': itemDict['name'],
+            'geolocation': itemDict['geolocation'],
+            'category': itemDict['category'],
+            'categoryName': itemDict['categoryName']
+        }
+        if 'route' in itemDict:
+            aggregatedAnswers['route'] = itemDict['route']
+
+        if 'hasElectricityOutlet' in itemDict:
+            aggregatedAnswers['hasElectricityOutlet'] = itemDict['hasElectricityOutlet']
+
+        # generate task.aggregatedAnswers according to majority count
+        for propertyKey in majorityAnswers:
+            aggregatedAnswers[propertyKey] = majorityAnswers[propertyKey]
+        
+        # create validation task
+        taskData = {
+            'itemId': item.id,
+            'item': itemRef,
+            'type': taskType.TASK_TYPE_VALIDATE_ITEM,
+            'numOfAnswersRequired': 5,
+            'createdAt': datetime.now(tzlocal()),
+            'expirationDate': None, # decide expiration date
+            'aggregatedAnswers': aggregatedAnswers
+        }
+        taskId = db.collection('placeTasks').add(taskData)
+        # call assign placetask after task is generated
+        assignmentResult = assignPlaceTask(taskId[1].id)
+        assignmentResult['taskId'] = taskId[1].id
+        validationTasks.append(taskData)
+    
+    return validationTasks
+
