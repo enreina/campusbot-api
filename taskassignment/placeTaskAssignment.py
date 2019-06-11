@@ -357,9 +357,12 @@ def generatePlaceValidationTaskAllEnrichmentTask():
         }
         taskId = db.collection('placeTasks').add(taskData)
         # call assign placetask after task is generated
-        assignmentResult = assignPlaceTask(taskId[1].id)
-        assignmentResult['taskId'] = taskId[1].id
         validationTasks.append(taskData)
+        try:
+            assignmentResult = assignPlaceTask(taskId[1].id)
+            assignmentResult['taskId'] = taskId[1].id
+        except:
+            continue
     
     return validationTasks
 

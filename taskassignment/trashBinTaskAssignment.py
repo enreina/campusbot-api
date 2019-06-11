@@ -337,8 +337,11 @@ def generateTrashBinValidationTaskAllEnrichmentTask():
         }
         taskId = db.collection('trashBinTasks').add(taskData)
         # call assign trashbin after task is generated
-        assignmentResult = assignTrashBinTask(taskId[1].id)
-        assignmentResult['taskId'] = taskId[1].id
         validationTasks.append(taskData)
+        try:
+            assignmentResult = assignTrashBinTask(taskId[1].id)
+            assignmentResult['taskId'] = taskId[1].id
+        except:
+            continue
     
     return validationTasks
