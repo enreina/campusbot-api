@@ -19,6 +19,10 @@ app.register_blueprint(foodTaskAssignment)
 app.register_blueprint(questionTaskAssignment)
 app.register_blueprint(trashBinTaskAssignment)
 
+@app.route('/')
+def campusbot():
+    return {'message': 'campusbot'}
+
 @app.route('/task-preview')
 @set_renderers(HTMLRenderer)
 def taskPreview():
