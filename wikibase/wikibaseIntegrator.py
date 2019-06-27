@@ -3,9 +3,14 @@ import requests
 import settings as env
 import hashlib
 from db.firestoreClient import db
+import pywikibot
+import json
 
 wikibaseIntegrator = Blueprint('wikibaseIntegrator', __name__)
 API_ENDPOINT = env.WIKIBASE_URL + "/w/api.php"
+site = pywikibot.Site('en', 'campuswiki')
+site.login()
+
 @wikibaseIntegrator.route('/api/wikibase/create-all-accounts', methods=['GET', 'POST'])
 def createAllAccounts():
     if request is not None and request.method == 'GET':
@@ -68,5 +73,45 @@ def createWikibaseAccount(username):
 
         response = session.post(url=API_ENDPOINT, data=params)
         return response.json()
+
+@wikibaseIntegrator.route('/api/wikibase/create-property', methods=['GET', 'POST'])
+def createProperty():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createWikibaseAccount'}
+    else:
+        datatype = request.data.get('datatype', None)
+        description = request.data.get('description', None)
+        label = request.data.get('label', None)
+
+        data = {
+            'datatype': datatype,
+            'descriptions': {
+                'en': {
+                    'language': 'en',
+                    'value': description
+                }
+            },
+            'labels': {
+                'en': {
+                    'language': 'en',
+                    'value': label
+                }
+            }
+        }
+
+        params = {
+            'action': 'wbeditentity',
+            'new': 'property',
+            'data': json.dumps(data),
+            'summary': 'bot adding in properties',
+            'token': site.tokens['edit']
+        }
+
+        req = site._simple_request(**params)
+        results = req.submit()
+        
+        return results
+
+
 
 
