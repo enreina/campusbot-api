@@ -75,13 +75,15 @@ def createWikibaseAccount(username):
         return response.json()
 
 @wikibaseIntegrator.route('/api/wikibase/create-property', methods=['GET', 'POST'])
-def createProperty():
+def createProperty(requestData=None):
     if request is not None and request.method == 'GET':
-        return {'methodName': 'createWikibaseAccount'}
+        return {'methodName': 'createProperty'}
     else:
-        datatype = request.data.get('datatype', None)
-        description = request.data.get('description', None)
-        label = request.data.get('label', None)
+        if request.data:
+            requestData = requestData
+        datatype = requestData.get('datatype', None)
+        description = requestData.get('description', None)
+        label = requestData.get('label', None)
 
         data = {
             'datatype': datatype,
@@ -109,9 +111,40 @@ def createProperty():
 
         req = site._simple_request(**params)
         results = req.submit()
-        
+        # 
         return results
 
+@wikibaseIntegrator.route('/api/wikibase/create-all-properties', methods=['GET', 'POST'])
+def createAllProperties():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createAllProperties'}
+    else:
+        # get all properties from database
+        allProperties = db.collection('properties').get()
+        allResults = []
+        # loop; don't create property for properties which already has wikibaseId
+        for propertyItem in allProperties:
+            propertyData = propertyItem.to_dict()
+            if propertyData.get('wikibaseId', False):
+                continue
+            try:
+                # call create property
+                requestData = {
+                    'datatype': propertyData.get('dataType', None),
+                    'description': propertyData.get('description', None),
+                    'label': propertyData.get('label', None)
+                }
+
+                results = createProperty(requestData)
+                wikibaseId = results['entity']['id']
+
+                # update property
+                propertyItem.reference.update({'wikibaseId': wikibaseId})
+                allResults.append(results)
+            except:
+                allResults.append({'success':0, 'property':propertyData})
+
+        return allResults
 
 
 
