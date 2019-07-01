@@ -106,3 +106,4 @@ password
 pywikibot.lwp
 throttle.ctrl
 apicache-py2
+apicache-py3

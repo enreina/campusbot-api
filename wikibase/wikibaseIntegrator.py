@@ -4,12 +4,13 @@ import settings as env
 import hashlib
 from db.firestoreClient import db
 import pywikibot
-import json
+from google.cloud.firestore_v1.document import DocumentReference 
 
 wikibaseIntegrator = Blueprint('wikibaseIntegrator', __name__)
-API_ENDPOINT = env.WIKIBASE_URL + "/w/api.php"
+WIKIBASE_API_ENDPOINT = env.WIKIBASE_URL + "/w/api.php"
 site = pywikibot.Site('en', 'campuswiki')
 site.login()
+repo = site.data_repository()
 
 @wikibaseIntegrator.route('/api/wikibase/create-all-accounts', methods=['GET', 'POST'])
 def createAllAccounts():
@@ -71,7 +72,7 @@ def createWikibaseAccount(username):
         }
         print(params)
 
-        response = session.post(url=API_ENDPOINT, data=params)
+        response = session.post(url=WIKIBASE_API_ENDPOINT, data=params)
         return response.json()
 
 @wikibaseIntegrator.route('/api/wikibase/create-property', methods=['GET', 'POST'])
@@ -80,7 +81,7 @@ def createProperty(requestData=None):
         return {'methodName': 'createProperty'}
     else:
         if request.data:
-            requestData = requestData
+            requestData = request.data
         datatype = requestData.get('datatype', None)
         description = requestData.get('description', None)
         label = requestData.get('label', None)
@@ -146,5 +147,76 @@ def createAllProperties():
 
         return allResults
 
+@wikibaseIntegrator.route('/api/wikibase/create-category', methods=['GET', 'POST'])
+def createCategory(requestData=None):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createCategory'}
+    else:
+        if request.data:
+            requestData = request.data
+        description = requestData.get('description', None)
+        label = requestData.get('label', None)
+        wikibaseId = requestData.get('wikibaseId', None)
+        categoryData = requestData.get('category', {})
 
+        # create item
+        item = pywikibot.ItemPage(repo, title=wikibaseId)
+        if not wikibaseId:
+            item.editLabels(labels={"en": label}, summary=u"Set the new item's label")
+            item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
+        
+        for propertyKey in categoryData:
+            if propertyKey not in ["label", "description"]:
+                # search property in database
+                results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
+                for result in results:
+                    propertyId = result.to_dict().get('wikibaseId', None)
+                    if propertyId:
+                        # add statement
+                        claim = pywikibot.Claim(repo, propertyId)
+                        target = categoryData[propertyKey]
+                        print(target)
+                        print(isinstance(target, DocumentReference))
+                        if isinstance(target, DocumentReference):
+                            target = target.get()
+                            targetId = target.to_dict().get('wikibaseId', None)
+                            print(targetId)
+                            target = pywikibot.ItemPage(repo, targetId)
+                            claim.setTarget(target)
+                            item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                            break
 
+                
+        # return result
+        return {"itemID": item.getID(), "label": label, "description": description}
+
+@wikibaseIntegrator.route('/api/wikibase/create-all-categories', methods=['GET', 'POST'])
+def createAllCategories():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createAllCategories'}
+    else:
+        # get all categories from database
+        allCategories = db.collection('categories').get()
+        allResults = []
+        # loop; don't create property for properties which already has wikibaseId
+        for category in allCategories:
+            categoryData = category.to_dict()
+            try:
+                # call create property
+                requestData = {
+                    'description': categoryData.get('description', None),
+                    'label': categoryData.get('label', None),
+                    'wikibaseId': categoryData.get('wikibaseId', None),
+                    'category': categoryData
+                }
+
+                results = createCategory(requestData)
+                wikibaseId = results['itemID']
+
+                # update property
+                category.reference.update({'wikibaseId': wikibaseId})
+                allResults.append(results)
+            except:
+                allResults.append({'success':0, 'category':requestData})
+
+        return allResults
