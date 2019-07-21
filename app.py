@@ -7,7 +7,6 @@ from taskassignment.placeTaskAssignment import placeTaskAssignment
 from taskassignment.foodTaskAssignment import foodTaskAssignment
 from taskassignment.questionTaskAssignment import questionTaskAssignment
 from taskassignment.trashBinTaskAssignment import trashBinTaskAssignment
-from wikibase.wikibaseIntegrator import wikibaseIntegrator
 from db.firestoreClient import db
 from common.constants import copywriting
 import requests as externalRequests
@@ -19,7 +18,9 @@ app.register_blueprint(placeTaskAssignment)
 app.register_blueprint(foodTaskAssignment)
 app.register_blueprint(questionTaskAssignment)
 app.register_blueprint(trashBinTaskAssignment)
-app.register_blueprint(wikibaseIntegrator)
+if env.WIKIBASE_URL:
+    from wikibase.wikibaseIntegrator import wikibaseIntegrator
+    app.register_blueprint(wikibaseIntegrator)
 
 @app.route('/')
 def campusbot():
