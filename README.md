@@ -24,11 +24,11 @@ source ./venv/bin/activate
 ```
 pip install -r requirements.txt
 ```
-5. Create `.env` file with Firestore credentials
+5. Create `.env` file with Firestore credentials and push notif message endpoint
 ```
 FIRESTORE_SERVICE_ACCOUNT_PATH = '/Users/enreina/thesis-projects/campusbot-b7b7f-firebase-adminsdk-8glnq-1610672393.json'
 ```
-6. Allow port 5000
+6. Allow port 5000 (you can skip this if you are running on local installation)
 ```
 sudo ufw allow 5000
 ```
@@ -36,8 +36,15 @@ sudo ufw allow 5000
 ```
 python app.py
 ```
-8. Open the api status
+8. Open the api status to make sure it is running
 http://127.0.0.1:5000/api/status
+
+9. Expose the url to public network using ngrok. Download ngrok [here](https://ngrok.com/download) and follow the instruction to sign up and set up (if you haven't done so). Then run ngrok to expose the API:
+
+```
+./ngrok http 5000
+```
+Copy the public url and use it to set the `CAMPUSBOT_BASE_URL` in the `.env` file of your local [campusbot](https://github.com/enreina/campusbot) installation.
 
 
 ### ENDPOINTS
