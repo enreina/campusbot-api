@@ -2,7 +2,7 @@
 
 1. Clone the repo to your local directory, e.g:
 ```
-git clone git@github.com:enreina/campusbot-api.git
+git clone git@github.com:enreina/campusbot-api.git ~/campusbot-api
 ```
 
 2. Install python (if you haven't) along with `pip` and `virtualenv`
@@ -15,7 +15,7 @@ sudo pip install --upgrade virtualenv
 ```
 3. Create and activate a python virtual environment
 ```
-cd /home/ubuntu/hcbot
+cd ~/campusbot-api
 mkdir venv
 virtualenv ./venv
 source ./venv/bin/activate
