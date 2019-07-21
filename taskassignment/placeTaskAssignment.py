@@ -187,8 +187,8 @@ def generatePlaceValidationTask(userId, enrichmentTaskInstanceId):
         }
         if 'route' in itemDict:
             aggregatedAnswers['route'] = itemDict['route']
-        elif 'route' in taskEnrichment:
-            aggregatedAnswers['route'] = itemDict['route']
+        elif 'route' in placeEnrichment:
+            aggregatedAnswers['route'] = placeEnrichment['route']
 
         if 'hasElectricityOutlet' in itemDict:
             aggregatedAnswers['hasElectricityOutlet'] = itemDict['hasElectricityOutlet']
