@@ -5,6 +5,7 @@ import hashlib
 from db.firestoreClient import db
 import pywikibot
 from google.cloud.firestore_v1.document import DocumentReference 
+import json
 
 wikibaseIntegrator = Blueprint('wikibaseIntegrator', __name__)
 WIKIBASE_API_ENDPOINT = env.WIKIBASE_URL + "/w/api.php"
@@ -164,7 +165,7 @@ def createCategory(requestData=None):
         if not wikibaseId:
             item.editLabels(labels={"en": label}, summary=u"Set the new item's label")
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
-        
+
         for propertyKey in categoryData:
             if propertyKey not in ["label", "description"]:
                 # search property in database
@@ -183,7 +184,8 @@ def createCategory(requestData=None):
                             print(targetId)
                             target = pywikibot.ItemPage(repo, targetId)
                             claim.setTarget(target)
-                            item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                            if claim not in item.get().get("claims", {}).get(propertyId,[]):
+                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
                             break
 
                 
@@ -209,6 +211,7 @@ def createAllCategories():
                     'wikibaseId': categoryData.get('wikibaseId', None),
                     'category': categoryData
                 }
+                print(requestData)
 
                 results = createCategory(requestData)
                 wikibaseId = results['itemID']
@@ -217,6 +220,8 @@ def createAllCategories():
                 category.reference.update({'wikibaseId': wikibaseId})
                 allResults.append(results)
             except:
-                allResults.append({'success':0, 'category':requestData})
-
+                allResults.append({'success':0, 'categoryId':category.id})
+                continue
+        
+        print(allResults)
         return allResults
