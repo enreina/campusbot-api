@@ -250,12 +250,21 @@ def createItem(requestData=None):
                             if 'valueMap' in propertyDict:
                                 target = unicode(propertyDict['valueMap'][target])
 
+
                             if isinstance(target, DocumentReference):
                                 target = target.get()
                                 targetId = target.to_dict().get('wikibaseId', None)
                                 target = pywikibot.ItemPage(repo, targetId)
                             
                             claim.setTarget(target)
+                            if 'qualifiers' in propertyDict:
+                                for qualifierData in propertyDict['qualifiers']:
+                                    qualifier = pywikibot.Claim(repo, qualifierData['propertyId'])
+                                    targetQualifier = itemData[qualifierData['propertyValueKey']]
+                                    if qualifierData['dataType'] == 'string':
+                                        targetQualifier = unicode(targetQualifier)
+                                    qualifier.setTarget(targetQualifier)
+                                    claim.addQualifier(qualifier)
                             # check duplicate claim
                             if claim not in item.get().get("claims", {}).get(propertyId,[]):
                                 item.addClaim(claim, summary="Adding claim for " + propertyKey)
