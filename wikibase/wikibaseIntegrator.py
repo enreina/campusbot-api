@@ -7,11 +7,65 @@ import pywikibot
 from google.cloud.firestore_v1.document import DocumentReference 
 import json
 
+DEFAULT_GLOBE_ITEM = "http://www.wikidata.org/entity/Q2"
+
+"""
+    Notes:
+    We need to remove the built in throttling because we 
+    are working on our own localhost running wikibase, we don't
+    care if we do a ton of requests, we are likely the only user
+"""
+# over write it
+def wait(self, seconds):
+    pass
+
+pywikibot.throttle.Throttle.wait = wait
+
+def globes():
+    """Supported globes for Coordinate datatype."""
+    return {
+        'ariel': 'http://www.wikidata.org/entity/Q3343',
+        'callisto': 'http://www.wikidata.org/entity/Q3134',
+        'ceres': 'http://www.wikidata.org/entity/Q596',
+        'deimos': 'http://www.wikidata.org/entity/Q7548',
+        'dione': 'http://www.wikidata.org/entity/Q15040',
+        'earth': 'http://www.wikidata.org/entity/Q2',
+        'enceladus': 'http://www.wikidata.org/entity/Q3303',
+        'eros': 'http://www.wikidata.org/entity/Q16711',
+        'europa': 'http://www.wikidata.org/entity/Q3143',
+        'ganymede': 'http://www.wikidata.org/entity/Q3169',
+        'gaspra': 'http://www.wikidata.org/entity/Q158244',
+        'hyperion': 'http://www.wikidata.org/entity/Q15037',
+        'iapetus': 'http://www.wikidata.org/entity/Q17958',
+        'io': 'http://www.wikidata.org/entity/Q3123',
+        'jupiter': 'http://www.wikidata.org/entity/Q319',
+        'lutetia': 'http://www.wikidata.org/entity/Q107556',
+        'mars': 'http://www.wikidata.org/entity/Q111',
+        'mercury': 'http://www.wikidata.org/entity/Q308',
+        'mimas': 'http://www.wikidata.org/entity/Q15034',
+        'miranda': 'http://www.wikidata.org/entity/Q3352',
+        'moon': 'http://www.wikidata.org/entity/Q405',
+        'oberon': 'http://www.wikidata.org/entity/Q3332',
+        'phobos': 'http://www.wikidata.org/entity/Q7547',
+        'phoebe': 'http://www.wikidata.org/entity/Q17975',
+        'pluto': 'http://www.wikidata.org/entity/Q339',
+        'rhea': 'http://www.wikidata.org/entity/Q15050',
+        'steins': 'http://www.wikidata.org/entity/Q150249',
+        'tethys': 'http://www.wikidata.org/entity/Q15047',
+        'titan': 'http://www.wikidata.org/entity/Q2565',
+        'titania': 'http://www.wikidata.org/entity/Q3322',
+        'triton': 'http://www.wikidata.org/entity/Q3359',
+        'umbriel': 'http://www.wikidata.org/entity/Q3338',
+        'venus': 'http://www.wikidata.org/entity/Q313',
+        'vesta': 'http://www.wikidata.org/entity/Q3030',
+    }
+
 wikibaseIntegrator = Blueprint('wikibaseIntegrator', __name__)
 WIKIBASE_API_ENDPOINT = env.WIKIBASE_URL + "/w/api.php"
 site = pywikibot.Site('en', 'campuswiki')
 site.login()
 repo = site.data_repository()
+repo.globes = globes
 
 @wikibaseIntegrator.route('/api/wikibase/create-all-accounts', methods=['GET', 'POST'])
 def createAllAccounts():
@@ -148,17 +202,17 @@ def createAllProperties():
 
         return allResults
 
-@wikibaseIntegrator.route('/api/wikibase/create-category', methods=['GET', 'POST'])
-def createCategory(requestData=None):
+@wikibaseIntegrator.route('/api/wikibase/create-item', methods=['GET', 'POST'])
+def createItem(requestData=None):
     if request is not None and request.method == 'GET':
-        return {'methodName': 'createCategory'}
+        return {'methodName': 'createItem'}
     else:
         if request.data:
             requestData = request.data
         description = requestData.get('description', None)
         label = requestData.get('label', None)
         wikibaseId = requestData.get('wikibaseId', None)
-        categoryData = requestData.get('category', {})
+        itemData = requestData.get('item', {})
 
         # create item
         item = pywikibot.ItemPage(repo, title=wikibaseId)
@@ -166,27 +220,46 @@ def createCategory(requestData=None):
             item.editLabels(labels={"en": label}, summary=u"Set the new item's label")
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
 
-        for propertyKey in categoryData:
+        for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
+                # try:
                 # search property in database
                 results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
                 for result in results:
-                    propertyId = result.to_dict().get('wikibaseId', None)
+                    propertyDict = result.to_dict()
+                    propertyId = propertyDict.get('wikibaseId', None)
+                    dataType = propertyDict.get('dataType', None)
                     if propertyId:
                         # add statement
                         claim = pywikibot.Claim(repo, propertyId)
-                        target = categoryData[propertyKey]
-                        print(target)
-                        print(isinstance(target, DocumentReference))
+                        target = itemData[propertyKey]
+                        # map according datatype
+                        if dataType == 'string':
+                            target = unicode(target)
+                        elif dataType == 'globe-coordinate':
+                            target = pywikibot.Coordinate(site=repo, lat=target['latitude'], lon=target['longitude'], precision=0.0001, globe_item=DEFAULT_GLOBE_ITEM)
+                        elif dataType == 'quantity':
+                            target = pywikibot.WbQuantity(target)
+
+                        # map according to valueMap
+                        if 'valueMap' in propertyDict:
+                            print(propertyDict['valueMap'])
+                            target = unicode(propertyDict['valueMap'][target])
+
                         if isinstance(target, DocumentReference):
                             target = target.get()
                             targetId = target.to_dict().get('wikibaseId', None)
-                            print(targetId)
                             target = pywikibot.ItemPage(repo, targetId)
-                            claim.setTarget(target)
-                            if claim not in item.get().get("claims", {}).get(propertyId,[]):
-                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
-                            break
+                        
+                        claim.setTarget(target)
+                        # check duplicate claim
+                        if claim not in item.get().get("claims", {}).get(propertyId,[]):
+                            item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                            print("Adding claim for " + propertyKey)
+                        break
+                # except Exception as e:
+                #     print "ERROR: ",propertyKey, e
+                #     continue
 
                 
         # return result
@@ -209,11 +282,11 @@ def createAllCategories():
                     'description': categoryData.get('description', None),
                     'label': categoryData.get('label', None),
                     'wikibaseId': categoryData.get('wikibaseId', None),
-                    'category': categoryData
+                    'item': categoryData
                 }
                 print(requestData)
 
-                results = createCategory(requestData)
+                results = createItem(requestData)
                 wikibaseId = results['itemID']
 
                 # update property
@@ -225,3 +298,24 @@ def createAllCategories():
         
         print(allResults)
         return allResults
+
+@wikibaseIntegrator.route('/api/wikibase/place/create-item-from-db/<itemId>', methods=['GET', 'POST'])
+def createItemFromDB(itemId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createItem'}
+    else:
+        item = db.collection('placeItems').document(itemId).get()
+        itemData = item.to_dict()
+        requestData = {
+            'label': itemData.get('name', itemId),
+            'description': itemData.get('route', None),
+            'wikibaseId': itemData.get('wikibaseId', None),
+            'item': itemData
+        }
+        results = createItem(requestData)
+        wikibaseId = results['itemID']
+
+        item.reference.update({'wikibaseId': wikibaseId})
+
+        return results
+    
