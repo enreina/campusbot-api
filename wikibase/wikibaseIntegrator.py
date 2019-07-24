@@ -6,6 +6,7 @@ from db.firestoreClient import db
 import pywikibot
 from google.cloud.firestore_v1.document import DocumentReference 
 import json
+from google.cloud import firestore
 
 DEFAULT_GLOBE_ITEM = "http://www.wikidata.org/entity/Q2"
 
@@ -222,44 +223,48 @@ def createItem(requestData=None):
 
         for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
-                # try:
-                # search property in database
-                results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
-                for result in results:
-                    propertyDict = result.to_dict()
-                    propertyId = propertyDict.get('wikibaseId', None)
-                    dataType = propertyDict.get('dataType', None)
-                    if propertyId:
-                        # add statement
-                        claim = pywikibot.Claim(repo, propertyId)
-                        target = itemData[propertyKey]
-                        # map according datatype
-                        if dataType == 'string':
-                            target = unicode(target)
-                        elif dataType == 'globe-coordinate':
-                            target = pywikibot.Coordinate(site=repo, lat=target['latitude'], lon=target['longitude'], precision=0.0001, globe_item=DEFAULT_GLOBE_ITEM)
-                        elif dataType == 'quantity':
-                            target = pywikibot.WbQuantity(target)
+                try:
+                    # search property in database
+                    results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
+                    for result in results:
+                        propertyDict = result.to_dict()
+                        propertyId = propertyDict.get('wikibaseId', None)
+                        dataType = propertyDict.get('dataType', None)
+                        if propertyId:
+                            # add statement
+                            claim = pywikibot.Claim(repo, propertyId)
+                            target = itemData[propertyKey]
+                            print(target)
+                            # map according datatype
+                            if dataType == 'string':
+                                target = unicode(target)
+                            elif dataType == 'globe-coordinate':
+                                target = pywikibot.Coordinate(site=repo, lat=target['latitude'], lon=target['longitude'], precision=0.0001, globe_item=DEFAULT_GLOBE_ITEM)
+                            elif dataType == 'quantity':
+                                target = pywikibot.WbQuantity(target)
+                            elif dataType == 'wikibase-item' and propertyKey == 'building' and isinstance(target, basestring):
+                                target = findOrCreateBuilding(target)
+                                print(target)
 
-                        # map according to valueMap
-                        if 'valueMap' in propertyDict:
-                            print(propertyDict['valueMap'])
-                            target = unicode(propertyDict['valueMap'][target])
+                            # map according to valueMap
+                            if 'valueMap' in propertyDict:
+                                print(propertyDict['valueMap'])
+                                target = unicode(propertyDict['valueMap'][target])
 
-                        if isinstance(target, DocumentReference):
-                            target = target.get()
-                            targetId = target.to_dict().get('wikibaseId', None)
-                            target = pywikibot.ItemPage(repo, targetId)
-                        
-                        claim.setTarget(target)
-                        # check duplicate claim
-                        if claim not in item.get().get("claims", {}).get(propertyId,[]):
-                            item.addClaim(claim, summary="Adding claim for " + propertyKey)
-                            print("Adding claim for " + propertyKey)
-                        break
-                # except Exception as e:
-                #     print "ERROR: ",propertyKey, e
-                #     continue
+                            if isinstance(target, DocumentReference):
+                                target = target.get()
+                                targetId = target.to_dict().get('wikibaseId', None)
+                                target = pywikibot.ItemPage(repo, targetId)
+                            
+                            claim.setTarget(target)
+                            # check duplicate claim
+                            if claim not in item.get().get("claims", {}).get(propertyId,[]):
+                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                                print("Adding claim for " + propertyKey)
+                            break
+                except Exception as e:
+                    print "ERROR: ",propertyKey, e
+                    continue
 
                 
         # return result
@@ -312,10 +317,34 @@ def createItemFromDB(itemId):
             'wikibaseId': itemData.get('wikibaseId', None),
             'item': itemData
         }
+        print(requestData)
         results = createItem(requestData)
+        print(results)
         wikibaseId = results['itemID']
 
         item.reference.update({'wikibaseId': wikibaseId})
 
         return results
+
+def findOrCreateBuilding(name):
+    items = db.collection('placeItems').where(u'nameLower', u'==', name.lower()).get()
+    for item in items:
+        itemData = item.to_dict()
+        if itemData.get('categoryName', '') == 'Building':
+            # create wikibase instance
+            createItemFromDB(item.id)
+            return db.collection('placeItems').document(item.id)
+
+    # create new building 
+    newBuilding = db.collection('placeItems').document()
+    newBuilding.set(
+        {
+            "name": name,
+            "category": db.collection('categories').document('building'),
+            "categoryName": 'Building',
+            "createdAt": firestore.SERVER_TIMESTAMP
+        }
+    )
+    createItemFromDB(newBuilding.id)
+    return db.collection('placeItems').document(item.id)
     
