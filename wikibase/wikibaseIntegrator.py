@@ -219,10 +219,12 @@ def createItem(requestData=None):
         item = pywikibot.ItemPage(repo, title=wikibaseId)
         if not wikibaseId:
             item.editLabels(labels={"en": label}, summary=u"Set the new item's label")
+        if description is not None:
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
 
         for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
+                print(propertyKey)
                 try:
                     # search property in database
                     results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
@@ -234,7 +236,6 @@ def createItem(requestData=None):
                             # add statement
                             claim = pywikibot.Claim(repo, propertyId)
                             target = itemData[propertyKey]
-                            print(target)
                             # map according datatype
                             if dataType == 'string':
                                 target = unicode(target)
@@ -244,11 +245,9 @@ def createItem(requestData=None):
                                 target = pywikibot.WbQuantity(target)
                             elif dataType == 'wikibase-item' and propertyKey == 'building' and isinstance(target, basestring):
                                 target = findOrCreateBuilding(target)
-                                print(target)
-
+                            
                             # map according to valueMap
                             if 'valueMap' in propertyDict:
-                                print(propertyDict['valueMap'])
                                 target = unicode(propertyDict['valueMap'][target])
 
                             if isinstance(target, DocumentReference):
@@ -289,7 +288,6 @@ def createAllCategories():
                     'wikibaseId': categoryData.get('wikibaseId', None),
                     'item': categoryData
                 }
-                print(requestData)
 
                 results = createItem(requestData)
                 wikibaseId = results['itemID']
@@ -305,10 +303,11 @@ def createAllCategories():
         return allResults
 
 @wikibaseIntegrator.route('/api/wikibase/place/create-item-from-db/<itemId>', methods=['GET', 'POST'])
-def createItemFromDB(itemId):
+def createPlaceItemFromDB(itemId):
     if request is not None and request.method == 'GET':
-        return {'methodName': 'createItem'}
+        return {'methodName': 'createPlaceItem'}
     else:
+        print(itemId)
         item = db.collection('placeItems').document(itemId).get()
         itemData = item.to_dict()
         requestData = {
@@ -326,13 +325,29 @@ def createItemFromDB(itemId):
 
         return results
 
+@wikibaseIntegrator.route('/api/wikibase/place/create-all-items', methods=['GET', 'POST'])
+def createAllPlaceItems():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createAllPlaceItems'}
+    else:
+        allResults = []
+        placeItems = db.collection("placeItems").get()
+        for item in placeItems:
+            print("Creating Place Item: {placeName}".format(
+                placeName=item.to_dict().get("name"))
+            )
+
+            results = createPlaceItemFromDB(item.id)
+            allResults.append(results)
+        return allResults
+
 def findOrCreateBuilding(name):
     items = db.collection('placeItems').where(u'nameLower', u'==', name.lower()).get()
     for item in items:
         itemData = item.to_dict()
         if itemData.get('categoryName', '') == 'Building':
             # create wikibase instance
-            createItemFromDB(item.id)
+            createPlaceItemFromDB(item.id)
             return db.collection('placeItems').document(item.id)
 
     # create new building 
@@ -340,11 +355,12 @@ def findOrCreateBuilding(name):
     newBuilding.set(
         {
             "name": name,
+            "nameLower": name.lower(),
             "category": db.collection('categories').document('building'),
-            "categoryName": 'Building',
+            "categoryName": u'Building',
             "createdAt": firestore.SERVER_TIMESTAMP
         }
     )
-    createItemFromDB(newBuilding.id)
+    createPlaceItemFromDB(newBuilding.id)
     return db.collection('placeItems').document(item.id)
     
