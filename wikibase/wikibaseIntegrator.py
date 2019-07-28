@@ -217,14 +217,13 @@ def createItem(requestData=None):
 
         # create item
         item = pywikibot.ItemPage(repo, title=wikibaseId)
-        if not wikibaseId:
-            item.editLabels(labels={"en": label}, summary=u"Set the new item's label")
+        # if not wikibaseId:
+        item.editLabels(labels={"en": label}, summary=u"Set the item's label")
         if description is not None:
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
 
         for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
-                print(propertyKey)
                 try:
                     # search property in database
                     results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
@@ -236,6 +235,10 @@ def createItem(requestData=None):
                             # add statement
                             claim = pywikibot.Claim(repo, propertyId)
                             target = itemData[propertyKey]
+                            # map according to valueMap
+                            if 'valueMap' in propertyDict:
+                                target = propertyDict['valueMap'][target]
+
                             # map according datatype
                             if dataType == 'string':
                                 target = unicode(target)
@@ -245,30 +248,31 @@ def createItem(requestData=None):
                                 target = pywikibot.WbQuantity(target)
                             elif dataType == 'wikibase-item' and propertyKey == 'building' and isinstance(target, basestring):
                                 target = findOrCreateBuilding(target)
-                            
-                            # map according to valueMap
-                            if 'valueMap' in propertyDict:
-                                target = unicode(propertyDict['valueMap'][target])
+                            elif dataType == 'wikibase-item' and propertyKey == 'mealItems':
+                                target = findOrCreateMealItems(target)
 
+                            if not isinstance(target, list):
+                                target = [target]
 
-                            if isinstance(target, DocumentReference):
-                                target = target.get()
-                                targetId = target.to_dict().get('wikibaseId', None)
-                                target = pywikibot.ItemPage(repo, targetId)
-                            
-                            claim.setTarget(target)
-                            if 'qualifiers' in propertyDict:
-                                for qualifierData in propertyDict['qualifiers']:
-                                    qualifier = pywikibot.Claim(repo, qualifierData['propertyId'])
-                                    targetQualifier = itemData[qualifierData['propertyValueKey']]
-                                    if qualifierData['dataType'] == 'string':
-                                        targetQualifier = unicode(targetQualifier)
-                                    qualifier.setTarget(targetQualifier)
-                                    claim.addQualifier(qualifier)
-                            # check duplicate claim
-                            if claim not in item.get().get("claims", {}).get(propertyId,[]):
-                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
-                                print("Adding claim for " + propertyKey)
+                            for targetItem in target:
+                                if isinstance(targetItem, DocumentReference):
+                                    targetItem = targetItem.get()
+                                    targetId = targetItem.to_dict().get('wikibaseId', None)
+                                    targetItem = pywikibot.ItemPage(repo, targetId)
+
+                                claim.setTarget(targetItem)
+                                if 'qualifiers' in propertyDict:
+                                    for qualifierData in propertyDict['qualifiers']:
+                                        qualifier = pywikibot.Claim(repo, qualifierData['propertyId'])
+                                        targetQualifier = itemData[qualifierData['propertyValueKey']]
+                                        if qualifierData['dataType'] == 'string':
+                                            targetQualifier = unicode(targetQualifier)
+                                        qualifier.setTarget(targetQualifier)
+                                        claim.addQualifier(qualifier)
+                                # check duplicate claim
+                                if claim not in item.get().get("claims", {}).get(propertyId,[]):
+                                    item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                                    print("Adding claim for " + propertyKey)
                             break
                 except Exception as e:
                     print "ERROR: ",propertyKey, e
@@ -308,7 +312,6 @@ def createAllCategories():
                 allResults.append({'success':0, 'categoryId':category.id})
                 continue
         
-        print(allResults)
         return allResults
 
 @wikibaseIntegrator.route('/api/wikibase/place/create-item-from-db/<itemId>', methods=['GET', 'POST'])
@@ -316,7 +319,6 @@ def createPlaceItemFromDB(itemId):
     if request is not None and request.method == 'GET':
         return {'methodName': 'createPlaceItem'}
     else:
-        print(itemId)
         item = db.collection('placeItems').document(itemId).get()
         itemData = item.to_dict()
         requestData = {
@@ -325,9 +327,7 @@ def createPlaceItemFromDB(itemId):
             'wikibaseId': itemData.get('wikibaseId', None),
             'item': itemData
         }
-        print(requestData)
         results = createItem(requestData)
-        print(results)
         wikibaseId = results['itemID']
 
         item.reference.update({'wikibaseId': wikibaseId})
@@ -372,4 +372,121 @@ def findOrCreateBuilding(name):
     )
     createPlaceItemFromDB(newBuilding.id)
     return db.collection('placeItems').document(item.id)
-    
+
+@wikibaseIntegrator.route('/api/wikibase/trashbin/create-item-from-db/<itemId>', methods=['GET', 'POST'])
+def createTrashBinItemFromDB(itemId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createTrashBinItemFromDB'}
+    else:
+        item = db.collection('trashBinItems').document(itemId).get()
+        itemData = item.to_dict()
+        itemData[u'category'] = db.collection('categories').document('trash-bin')
+        requestData = {
+            'label': unicode("Trash Bin #{itemId}".format(itemId=item.id)),
+            'description': unicode(itemData.get('locationDescription', None)),
+            'wikibaseId': itemData.get('wikibaseId', None),
+            'item': itemData
+        }
+        results = createItem(requestData)
+        wikibaseId = results['itemID']
+
+        item.reference.update({'wikibaseId': wikibaseId})
+
+        return results
+
+@wikibaseIntegrator.route('/api/wikibase/trashbin/create-all-items', methods=['GET', 'POST'])
+def createAllTrashBinItems():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createAllTrashBinItems'}
+    else:
+        allResults = []
+        trashBinItems = db.collection("trashBinItems").get()
+        for item in trashBinItems:
+            try:
+                print("Creating Trash Bin Item: {trashBinName}".format(
+                    trashBinName=item.to_dict().get("locationDescription"))
+                )
+
+                results = createTrashBinItemFromDB(item.id)
+                allResults.append(results)
+            except Exception as e:
+                print "ERROR: ", e
+                continue
+
+        return allResults
+
+@wikibaseIntegrator.route('/api/wikibase/food/create-item-from-db/<itemId>', methods=['GET', 'POST'])
+def createFoodItemFromDB(itemId):
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createFoodItemFromDB'}
+    else:
+        item = db.collection('foodItems').document(itemId).get()
+        itemData = item.to_dict()
+        if 'category' not in itemData:
+            itemData[u'category'] = db.collection('categories').document('meal')
+            description = u"A meal containing {}".format(unicode(itemData.get('name', None)))
+        else:
+            description = unicode(itemData.get('name', None))
+
+        requestData = {
+            'label': unicode(itemData.get('name', None)),
+            'description': description,
+            'wikibaseId': itemData.get('wikibaseId', None),
+            'item': itemData
+        }
+        results = createItem(requestData)
+        wikibaseId = results['itemID']
+
+        item.reference.update({'wikibaseId': wikibaseId})
+
+        return results
+
+@wikibaseIntegrator.route('/api/wikibase/food/create-all-items', methods=['GET', 'POST'])
+def createAllFoodItems():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'createAllFoodItems'}
+    else:
+        allResults = []
+        foodItems = db.collection("foodItems").get()
+        for item in foodItems:
+            try:
+                print("Creating Food Item: {foodName}".format(
+                    foodName=item.to_dict().get("name"))
+                )
+
+                results = createFoodItemFromDB(item.id)
+                allResults.append(results)
+            except Exception as e:
+                print "ERROR: ", e
+                continue
+
+        return allResults
+
+
+def findOrCreateMealItems(target):
+    mealItemList = []
+    for mealItem in target:
+        # find in meal items collection
+        queriedItems = db.collection('foodItems').where('name', '==', mealItem.lower()).get()
+        found = False
+        for item in queriedItems:
+            itemDict = item.to_dict()
+            if itemDict.get('category', None) == db.collection('categories').document('food'):
+                mealItemList.append(db.collection('foodItems').document(item.id))
+                found = True
+                break
+        
+        # if not found, create new item
+        if not found:
+            newItem = db.collection('foodItems').document()
+            newItem.set(
+                {
+                    "name": mealItem.lower(),
+                    "category": db.collection('categories').document('food'),
+                    "createdAt": firestore.SERVER_TIMESTAMP
+                }
+            )
+            createFoodItemFromDB(newItem.id)
+            mealItemList.append(db.collection("foodItems").document(newItem.id))
+
+    return mealItemList
