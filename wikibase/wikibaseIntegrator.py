@@ -221,7 +221,7 @@ def createItem(requestData=None):
             item.editLabels(labels={"en": label}, summary=u"Set the item's label")
         if description is not None:
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
-
+        
         for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
                 try:
@@ -229,6 +229,7 @@ def createItem(requestData=None):
                     results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
                     for result in results:
                         propertyDict = result.to_dict()
+                        print(propertyDict)
                         propertyId = propertyDict.get('wikibaseId', None)
                         dataType = propertyDict.get('dataType', None)
                         if propertyId:
@@ -237,7 +238,15 @@ def createItem(requestData=None):
                             target = itemData[propertyKey]
                             # map according to valueMap
                             if 'valueMap' in propertyDict:
-                                target = propertyDict['valueMap'][unicode(target)]
+                                if isinstance(target, list) and isinstance(target[0], dict):
+                                    newTarget = []
+                                    for x in target:
+                                        newTarget.append({
+                                            'propertyName': x['propertyName'], 
+                                            'propertyValue': propertyDict['valueMap'][unicode(x['propertyValue']).lower()]})
+                                    target = newTarget
+                                else:
+                                    target = propertyDict['valueMap'][unicode(target).lower()]
 
                             # map according datatype
                             if dataType == 'string':
@@ -248,12 +257,15 @@ def createItem(requestData=None):
                                 target = pywikibot.WbQuantity(target)
                             elif dataType == 'wikibase-item' and propertyKey == 'building' and isinstance(target, basestring):
                                 target = findOrCreateBuilding(target)
-                            elif dataType == 'wikibase-item' and propertyKey == 'mealItems':
+                            elif dataType == 'wikibase-item' and (propertyKey == 'mealItems' or propertyKey == 'mealCategory'):
                                 target = findOrCreateMealItems(target)
+
+                            if propertyKey == 'mealCategory':
+                                continue
 
                             if not isinstance(target, list):
                                 target = [target]
-
+                            
                             for targetItem in target:
                                 if isinstance(targetItem, DocumentReference):
                                     targetItem = targetItem.get()
@@ -464,7 +476,13 @@ def createAllFoodItems():
 
 def findOrCreateMealItems(target):
     mealItemList = []
-    for mealItem in target:
+    for mealItemPack in target:
+        if isinstance(mealItemPack, dict):
+            mealItem = mealItemPack[u'propertyName']
+            mealCategory = mealItemPack[u'propertyValue']
+        else:
+            mealItem = mealItemPack
+            mealCategory = None
         # find in meal items collection
         queriedItems = db.collection('foodItems').where('name', '==', mealItem.lower()).get()
         found = False
@@ -473,6 +491,12 @@ def findOrCreateMealItems(target):
             if itemDict.get('category', None) == db.collection('categories').document('food'):
                 mealItemList.append(db.collection('foodItems').document(item.id))
                 found = True
+                if mealCategory is not None:
+                    print ("Adding meal category for {}".format(mealItem))
+                    createItem({
+                        "wikibaseId": itemDict.get('wikibaseId', None),
+                        "item": {u"category": mealCategory}
+                    })
                 break
         
         # if not found, create new item
@@ -490,17 +514,16 @@ def findOrCreateMealItems(target):
 
     return mealItemList
 
-@wikibaseIntegrator.route('/api/wikibase/place/import-enrichments', methods=['GET', 'POST'])
-def importPlaceEnrichments():
+@wikibaseIntegrator.route('/api/wikibase/<itemType>/import-enrichments', methods=['GET', 'POST'])
+def importEnrichments(itemType):
     if request is not None and request.method == 'GET':
-        return {'methodName': 'importPlaceEnrichments'}
+        return {'methodName': 'import{}Enrichments'.format(itemType.capitalize())}
     else:
         results = []
-        enrichments = db.collection('placeEnrichments').get()
+        enrichments = db.collection('{}Enrichments'.format(itemType.lower())).get()
         for enrichment in enrichments:
             try:
                 enrichmentData = enrichment.to_dict()
-                print(enrichmentData)
                 # find item
                 item = enrichmentData['taskInstance'].get().get('task').get().get('item').get()
                 itemData = item.to_dict()
@@ -510,7 +533,6 @@ def importPlaceEnrichments():
                     "item": enrichmentData,
                     "wikibaseId": wikibaseId
                 }
-                print(requestData)
 
                 results.append(createItem(requestData))
             except Exception as e:
