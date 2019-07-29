@@ -229,7 +229,6 @@ def createItem(requestData=None):
                     results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
                     for result in results:
                         propertyDict = result.to_dict()
-                        print(propertyDict)
                         propertyId = propertyDict.get('wikibaseId', None)
                         dataType = propertyDict.get('dataType', None)
                         if propertyId:
@@ -281,10 +280,24 @@ def createItem(requestData=None):
                                             targetQualifier = unicode(targetQualifier)
                                         qualifier.setTarget(targetQualifier)
                                         claim.addQualifier(qualifier)
+
                                 # check duplicate claim
-                                if claim not in item.get().get("claims", {}).get(propertyId,[]):
-                                    item.addClaim(claim, summary="Adding claim for " + propertyKey)
-                                    print("Adding claim for " + propertyKey)
+                                existingClaims = item.get().get("claims", {}).get(propertyId,[])
+                                # print(existingClaims)
+                                for oldClaim in existingClaims:
+                                    item.removeClaims(oldClaim)
+                                    print("removed a claim ({})".format(propertyId))
+                        
+                                # add reference
+                                if 'authorId' in itemData:
+                                    referenceClaim = pywikibot.Claim(repo, "P26")
+                                    referenceClaim.setTarget(itemData['authorId'])
+                                    claim.addSource(referenceClaim)
+                                    print("Answered by  " + itemData['authorId'])
+
+                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                                print("Adding claim for " + propertyKey)
+                                
                             break
                 except Exception as e:
                     print "ERROR: ",propertyKey, e
