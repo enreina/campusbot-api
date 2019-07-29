@@ -217,8 +217,8 @@ def createItem(requestData=None):
 
         # create item
         item = pywikibot.ItemPage(repo, title=wikibaseId)
-        # if not wikibaseId:
-        item.editLabels(labels={"en": label}, summary=u"Set the item's label")
+        if not wikibaseId:
+            item.editLabels(labels={"en": label}, summary=u"Set the item's label")
         if description is not None:
             item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
 
@@ -237,7 +237,7 @@ def createItem(requestData=None):
                             target = itemData[propertyKey]
                             # map according to valueMap
                             if 'valueMap' in propertyDict:
-                                target = propertyDict['valueMap'][target]
+                                target = propertyDict['valueMap'][unicode(target)]
 
                             # map according datatype
                             if dataType == 'string':
@@ -462,7 +462,6 @@ def createAllFoodItems():
 
         return allResults
 
-
 def findOrCreateMealItems(target):
     mealItemList = []
     for mealItem in target:
@@ -490,3 +489,32 @@ def findOrCreateMealItems(target):
             mealItemList.append(db.collection("foodItems").document(newItem.id))
 
     return mealItemList
+
+@wikibaseIntegrator.route('/api/wikibase/place/import-enrichments', methods=['GET', 'POST'])
+def importPlaceEnrichments():
+    if request is not None and request.method == 'GET':
+        return {'methodName': 'importPlaceEnrichments'}
+    else:
+        results = []
+        enrichments = db.collection('placeEnrichments').get()
+        for enrichment in enrichments:
+            try:
+                enrichmentData = enrichment.to_dict()
+                print(enrichmentData)
+                # find item
+                item = enrichmentData['taskInstance'].get().get('task').get().get('item').get()
+                itemData = item.to_dict()
+                wikibaseId = itemData.get('wikibaseId', False)
+
+                requestData = {
+                    "item": enrichmentData,
+                    "wikibaseId": wikibaseId
+                }
+                print(requestData)
+
+                results.append(createItem(requestData))
+            except Exception as e:
+                print(e)
+                continue
+        return results
+
