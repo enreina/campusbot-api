@@ -216,15 +216,28 @@ def createItem(requestData=None):
         itemData = requestData.get('item', {})
 
         # create item
-        item = pywikibot.ItemPage(repo, title=wikibaseId)
-        if not wikibaseId:
-            item.editLabels(labels={"en": label}, summary=u"Set the item's label")
-        if description is not None:
-            item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
+        try:
+            item = pywikibot.ItemPage(repo, title=wikibaseId)
+            print(wikibaseId)
+            if not wikibaseId:
+                item.editLabels(labels={"en": label}, summary=u"Set the item's label")
+            if description is not None:
+                item.editDescriptions(descriptions={"en": description}, summary=u"Edit description")
+        except Exception as e:
+            print e
+            return {"wikibaseId": wikibaseId, "errorMessage": "Can't create page. See the console logs for more info"}
+        
+        # uncomment to clean claims
+        # existingClaims = item.get().get("claims", {})
+        # for key in existingClaims.keys():
+        #     item.removeClaims(existingClaims.get(key,[]))
         
         for propertyKey in itemData:
             if propertyKey not in ["label", "description"]:
                 try:
+                    target = itemData[propertyKey]
+                    if target is None:
+                        continue
                     # search property in database
                     results = db.collection("properties").where(u"aliases", u"array_contains", propertyKey).get()
                     for result in results:
@@ -234,7 +247,7 @@ def createItem(requestData=None):
                         if propertyId:
                             # add statement
                             claim = pywikibot.Claim(repo, propertyId)
-                            target = itemData[propertyKey]
+
                             # map according to valueMap
                             if 'valueMap' in propertyDict:
                                 if isinstance(target, list) and isinstance(target[0], dict):
@@ -272,6 +285,7 @@ def createItem(requestData=None):
                                     targetItem = pywikibot.ItemPage(repo, targetId)
 
                                 claim.setTarget(targetItem)
+                                pointInTimeTarget = None
                                 if 'qualifiers' in propertyDict:
                                     for qualifierData in propertyDict['qualifiers']:
                                         qualifier = pywikibot.Claim(repo, qualifierData['propertyId'])
@@ -280,14 +294,9 @@ def createItem(requestData=None):
                                             targetQualifier = unicode(targetQualifier)
                                         qualifier.setTarget(targetQualifier)
                                         claim.addQualifier(qualifier)
-
-                                # check duplicate claim
-                                existingClaims = item.get().get("claims", {}).get(propertyId,[])
-                                # print(existingClaims)
-                                for oldClaim in existingClaims:
-                                    item.removeClaims(oldClaim)
-                                    print("removed a claim ({})".format(propertyId))
-                        
+                                        if qualifierData['propertyId'] == 'P25':
+                                            pointInTimeTarget = targetQualifier
+                                
                                 # add reference
                                 if 'authorId' in itemData:
                                     referenceClaim = pywikibot.Claim(repo, "P26")
@@ -295,8 +304,20 @@ def createItem(requestData=None):
                                     claim.addSource(referenceClaim)
                                     print("Answered by  " + itemData['authorId'])
 
-                                item.addClaim(claim, summary="Adding claim for " + propertyKey)
-                                print("Adding claim for " + propertyKey)
+                                # check duplicate claim
+                                duplicate = False
+                                existingClaims = item.get().get("claims", {}).get(propertyId,[])
+                                for oldClaim in existingClaims:
+                                    if oldClaim.target_equals(targetItem):
+                                        if 'P25' not in oldClaim.qualifiers.keys() or oldClaim.has_qualifier('P25', pointInTimeTarget):
+                                            duplicate = True                                        
+                                            if 'authorId' in itemData:
+                                                repo.editSource(oldClaim, referenceClaim, summary="Adding new source to {}".format(propertyKey))
+                                                print("Adding new source to {}".format(propertyKey))
+                                print(duplicate)
+                                if not duplicate:
+                                    item.addClaim(claim, summary="Adding claim for " + propertyKey)
+                                    print("Adding claim for " + propertyKey)
                                 
                             break
                 except Exception as e:
@@ -366,7 +387,11 @@ def createAllPlaceItems():
     else:
         allResults = []
         placeItems = db.collection("placeItems").get()
+        placeItems = [x for x in placeItems]
+        count = 0
         for item in placeItems:
+            count = count + 1
+            print ("Item Count: {}".format(count))
             print("Creating Place Item: {placeName}".format(
                 placeName=item.to_dict().get("name"))
             )
@@ -534,9 +559,13 @@ def importEnrichments(itemType):
     else:
         results = []
         enrichments = db.collection('{}Enrichments'.format(itemType.lower())).get()
+        enrichments = [x for x in enrichments]
         for enrichment in enrichments:
             try:
                 enrichmentData = enrichment.to_dict()
+                # author
+                authorId = enrichmentData['taskInstance'].parent.parent.id
+                enrichmentData[u'authorId'] = authorId
                 # find item
                 item = enrichmentData['taskInstance'].get().get('task').get().get('item').get()
                 itemData = item.to_dict()
