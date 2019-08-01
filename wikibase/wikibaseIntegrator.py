@@ -270,7 +270,7 @@ def createItem(requestData=None):
                             elif dataType == 'wikibase-item' and propertyKey == 'building' and isinstance(target, basestring):
                                 target = findOrCreateBuilding(target)
                             elif dataType == 'wikibase-item' and (propertyKey == 'mealItems' or propertyKey == 'mealCategory'):
-                                target = findOrCreateMealItems(target)
+                                target = findOrCreateMealItems(target, itemData.get('authorId', None))
 
                             if propertyKey == 'mealCategory':
                                 continue
@@ -298,7 +298,7 @@ def createItem(requestData=None):
                                             pointInTimeTarget = targetQualifier
                                 
                                 # add reference
-                                if 'authorId' in itemData:
+                                if 'authorId' in itemData and itemData['authorId'] is not None:
                                     referenceClaim = pywikibot.Claim(repo, "P26")
                                     referenceClaim.setTarget(itemData['authorId'])
                                     claim.addSource(referenceClaim)
@@ -391,13 +391,17 @@ def createAllPlaceItems():
         count = 0
         for item in placeItems:
             count = count + 1
-            print ("Item Count: {}".format(count))
-            print("Creating Place Item: {placeName}".format(
-                placeName=item.to_dict().get("name"))
-            )
+            try:
+                print ("Item Count: {}".format(count))
+                print("Creating Place Item: {placeName}".format(
+                    placeName=item.to_dict().get("name"))
+                )
 
-            results = createPlaceItemFromDB(item.id)
-            allResults.append(results)
+                results = createPlaceItemFromDB(item.id)
+                allResults.append(results)
+            except Exception as e:
+                print "ERROR: ", e
+                continue
         return allResults
 
 def findOrCreateBuilding(name):
@@ -498,6 +502,7 @@ def createAllFoodItems():
     else:
         allResults = []
         foodItems = db.collection("foodItems").get()
+        foodItems = [x for x in foodItems]
         for item in foodItems:
             try:
                 print("Creating Food Item: {foodName}".format(
@@ -512,7 +517,7 @@ def createAllFoodItems():
 
         return allResults
 
-def findOrCreateMealItems(target):
+def findOrCreateMealItems(target, authorId=None):
     mealItemList = []
     for mealItemPack in target:
         if isinstance(mealItemPack, dict):
@@ -533,7 +538,7 @@ def findOrCreateMealItems(target):
                     print ("Adding meal category for {}".format(mealItem))
                     createItem({
                         "wikibaseId": itemDict.get('wikibaseId', None),
-                        "item": {u"category": mealCategory}
+                        "item": {u"category": mealCategory, u"authorId": authorId}
                     })
                 break
         
