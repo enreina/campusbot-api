@@ -587,3 +587,50 @@ def importEnrichments(itemType):
                 continue
         return results
 
+
+placeRelations = {
+    "place": ["P12", "P15", "P11", "P16", "P20"],
+    "building": ["P4"],
+    "non-building": ["P3"]
+}
+@wikibaseIntegrator.route('/api/wikibase/<itemType>/column-completeness', methods=['GET'])
+def columnCompleteness(itemType):
+    items = db.collection("{}Items".format(itemType)).get()
+    items = [x for x in items]
+    columnCompleteness = {}
+
+    for item in items:
+        itemData = item.to_dict()
+        wikibaseId = itemData.get('wikibaseId', None)
+        # skip this item if it does not have wikibaseId or no author (generated item)
+        if wikibaseId is None or itemData.get("authorId", None) is None:
+            continue
+        print("Calculating column completeness for {}".format(wikibaseId))
+
+        # list all properties
+        allProperties = placeRelations[itemType]
+        if itemType == "place":
+            if itemData.get("categoryName", None) == u"Building":
+                allProperties = allProperties + placeRelations["building"]
+            else:
+                allProperties = allProperties + placeRelations["non-building"]
+
+        # get wikibase page
+        itemPage = pywikibot.ItemPage(repo, title=wikibaseId)
+        countPropertyExist = 0
+        countTotalProperty = 0.0
+        for propertyId in allProperties:
+            countTotalProperty = countTotalProperty + 1.0
+            existingClaims = itemPage.get().get("claims", {}).get(propertyId,[])
+            if len(existingClaims):
+                print("{} exists".format(propertyId))
+                countPropertyExist = countPropertyExist + 1.0
+            else:
+                print("{} does not exists".format(propertyId)) 
+
+        columnCompleteness[wikibaseId] = countPropertyExist / countTotalProperty
+    
+    completenessValues = columnCompleteness.values()
+    averageCompleteness = sum(completenessValues) / len(completenessValues)
+
+    return {"averageColumnCompleteness": averageCompleteness, "columnCompleteness": columnCompleteness}
