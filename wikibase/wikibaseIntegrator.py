@@ -591,13 +591,18 @@ def importEnrichments(itemType):
 placeRelations = {
     "place": ["P12", "P15", "P11", "P16", "P20"],
     "building": ["P4"],
-    "non-building": ["P3"]
+    "non-building": ["P3"],
+    "food": ["P12", "P17"],
+    "mealItem": ["P13"] # have to has two P13 claims
 }
+
+chatbotv1Users = [u'156992599', u'170213699', u'20791653', u'219858071', u'22529897', u'243988433', u'271561032', u'28421793', u'29361642', u'351280380', u'380438492', u'385830385', u'444883337', u'485797291', u'489656609', u'555780883', u'596766383', u'616359335', u'641517503', u'653573625', u'702152739', u'721436212', u'785126046', u'800637715', u'806514623', u'842639207', u'853716841', u'874886396', u'882565471', u'885775375', u'893206712']
+chatbotv2Users = [u'116014251', u'142561394', u'157431353', u'178336114', u'195261716', u'198245150', u'348674689', u'385202626', u'471276833', u'641746863', u'647153443', u'699711087', u'739835828', u'753036378', u'805865144', u'814716290', u'827717938', u'829779399', u'830842359', u'845341998', u'899274128']
 @wikibaseIntegrator.route('/api/wikibase/<itemType>/column-completeness', methods=['GET'])
 def columnCompleteness(itemType):
     items = db.collection("{}Items".format(itemType)).get()
     items = [x for x in items]
-    columnCompleteness = {}
+    columnCompleteness = {"overall": {}, "chatbot1": {}, "chatbot2": {}}
 
     for item in items:
         itemData = item.to_dict()
@@ -618,19 +623,77 @@ def columnCompleteness(itemType):
         # get wikibase page
         itemPage = pywikibot.ItemPage(repo, title=wikibaseId)
         countPropertyExist = 0
+        countPropertyExistForChatbot1 = 0.0
+        countPropertyExistForChatbot2 = 0.0
         countTotalProperty = 0.0
         for propertyId in allProperties:
             countTotalProperty = countTotalProperty + 1.0
             existingClaims = itemPage.get().get("claims", {}).get(propertyId,[])
             if len(existingClaims):
                 print("{} exists".format(propertyId))
-                countPropertyExist = countPropertyExist + 1.0
+                # check chatbot 1
+                foundChatbot1 = False
+                foundChatbot2 = False
+                for claim in existingClaims:
+                    for source in claim.getSources():
+                        for sourceClaim in source.get("P26", []):
+                            target = unicode(sourceClaim.getTarget())
+                            if target in chatbotv1Users and not foundChatbot1:
+                                countPropertyExistForChatbot1 = countPropertyExistForChatbot1 + 1
+                                foundChatbot1 = True
+                            elif target in chatbotv2Users and not foundChatbot2:
+                                countPropertyExistForChatbot2 = countPropertyExistForChatbot2 + 1
+                                foundChatbot2 = True
+                            if (foundChatbot1 and foundChatbot2):
+                                break
+                        if (foundChatbot1 and foundChatbot2):
+                            break
+                    if (foundChatbot1 and foundChatbot2):
+                        break
+                if foundChatbot1 or foundChatbot2:
+                    countPropertyExist = countPropertyExist + 1.0
             else:
-                print("{} does not exists".format(propertyId)) 
+                print("{} does not exists".format(propertyId))
 
-        columnCompleteness[wikibaseId] = countPropertyExist / countTotalProperty
-    
-    completenessValues = columnCompleteness.values()
+        if itemType == 'food':
+            foundChatbot1 = False
+            foundChatbot2 = False
+            mealItemClaims = itemPage.get().get("claims", {}).get("P17",[])
+            for claim in mealItemClaims:
+                mealItem = claim.getTarget()
+                countTotalProperty = countTotalProperty + 1.0
+                if len(mealItem.get().get("claims", {}).get("P13", [])) > 1:
+                    for source in claim.getSources():
+                        for sourceClaim in source.get("P26", []):
+                            target = unicode(sourceClaim.getTarget())
+                            if target in chatbotv1Users and not foundChatbot1:
+                                countPropertyExistForChatbot1 = countPropertyExistForChatbot1 + 1
+                                foundChatbot1 = True
+                            elif target in chatbotv2Users and not foundChatbot2:
+                                countPropertyExistForChatbot2 = countPropertyExistForChatbot2 + 1
+                                foundChatbot2 = True
+                            if (foundChatbot1 and foundChatbot2):
+                                break
+                        if (foundChatbot1 and foundChatbot2):
+                            break
+                    if (foundChatbot1 and foundChatbot2):
+                        break
+                    if foundChatbot1 or foundChatbot2:
+                        countPropertyExist = countPropertyExist + 1.0
+
+        columnCompleteness["overall"][wikibaseId] = countPropertyExist / countTotalProperty
+        columnCompleteness["chatbot1"][wikibaseId] = countPropertyExistForChatbot1 / countTotalProperty
+        columnCompleteness["chatbot2"][wikibaseId] = countPropertyExistForChatbot2 / countTotalProperty
+
+    completenessValues = columnCompleteness["overall"].values()
     averageCompleteness = sum(completenessValues) / len(completenessValues)
+    chatbot1Values = columnCompleteness["chatbot1"].values()
+    averageCompletenessChatbot1 = sum(chatbot1Values) / len(completenessValues)
+    chatbot2Values = columnCompleteness["chatbot2"].values()
+    averageCompletenessChatbot2 = sum(chatbot2Values) / len(completenessValues)
 
-    return {"averageColumnCompleteness": averageCompleteness, "columnCompleteness": columnCompleteness}
+    return {
+        "averageColumnCompleteness": averageCompleteness,
+        "averageColumnCompletenessV1":  averageCompletenessChatbot1,
+        "averageColumnCompletenessV2":  averageCompletenessChatbot2,
+        "columnCompleteness": columnCompleteness}
