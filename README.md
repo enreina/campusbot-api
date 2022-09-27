@@ -1,4 +1,12 @@
 # campusbot-api
+API for campusbot -- a telegram bot for crowdsourcing knowledge base. Part of thesis project "Crowdsourced Knowledge Base Construction using Text-Based Conversational Agents"
+
+## Useful Links
+- [Repo for campusbot (Telegram Bot i.e. client-side)](https://github.com/enreina/campusbot)
+- [Thesis Manuscript](https://repository.tudelft.nl/islandora/object/uuid%3A877f5299-ac54-4b8b-9b49-1d237d55e661)
+- [Thesis Defense Slides](https://docs.google.com/presentation/d/1LHcQmGI--w5iM49vkTqBxQs8JjyyiYJM3Q9dUE-366w/edit?usp=sharing)
+
+## How to run
 
 1. Clone the repo to your local directory, e.g:
 ```
